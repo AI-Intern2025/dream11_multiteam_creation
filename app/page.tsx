@@ -8,11 +8,14 @@ import { Input } from '@/components/ui/input';
 import { Search, Calendar, Filter, TrendingUp, Users, Trophy, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import Link from 'next/link';
 import { useCricketMatches } from '@/hooks/use-cricket-data';
+import UserNav from '@/components/user-nav';
+import { useSession } from 'next-auth/react';
 
 export default function Home() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFormat, setSelectedFormat] = useState('all');
   const { matches, loading, error, refetch } = useCricketMatches();
+  const { data: session } = useSession();
 
   const filteredMatches = matches.filter(match => {
     if (!match) return false;
@@ -43,17 +46,20 @@ export default function Home() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <Link href="/admin">
-                <Button variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-black">
-                  Admin Panel
-                </Button>
-              </Link>
+              {session?.user?.role === 'admin' && (
+                <Link href="/admin">
+                  <Button variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-black">
+                    Admin Panel
+                  </Button>
+                </Link>
+              )}
               <Link href="/analytics">
                 <Button className="bg-red-600 hover:bg-red-700">
                   <TrendingUp className="mr-2 h-4 w-4" />
                   Analytics
                 </Button>
               </Link>
+              <UserNav />
             </div>
           </div>
         </div>

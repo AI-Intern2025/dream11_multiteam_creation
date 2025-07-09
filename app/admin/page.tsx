@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Upload, Users, Calendar, FileText, Settings, Home, Eye, Edit, Trash2, CheckCircle, AlertCircle, Database } from 'lucide-react';
+import { Upload, Users, Calendar, FileText, Settings, Home, Eye, Edit, Trash2, CheckCircle, AlertCircle, Database, Shield } from 'lucide-react';
 import Link from 'next/link';
+import UserNav from '@/components/user-nav';
 
 // Mock data
 const mockFixtures = [
@@ -26,38 +29,138 @@ const mockPlayers = [
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('fixtures');
   const [selectedFixture, setSelectedFixture] = useState<number | null>(null);
+  const [users, setUsers] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [promoteEmail, setPromoteEmail] = useState('');
+  const [promoteLoading, setPromoteLoading] = useState(false);
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (status === 'loading') return; // Still loading
+    
+    if (!session) {
+      router.push('/auth/signin');
+      return;
+    }
+    
+    if (session.user?.role !== 'admin') {
+      router.push('/unauthorized');
+      return;
+    }
+  }, [session, status, router]);
+
+  useEffect(() => {
+    if (session?.user?.role === 'admin') {
+      fetchUsers();
+    }
+  }, [session]);
+
+  const fetchUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const response = await fetch('/api/admin/users');
+      if (response.ok) {
+        const data = await response.json();
+        setUsers(data.users);
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const updateUserRole = async (userId: string, role: 'user' | 'admin') => {
+    try {
+      const response = await fetch('/api/admin/users', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId, role }),
+      });
+      
+      if (response.ok) {
+        fetchUsers(); // Refresh the users list
+      }
+    } catch (error) {
+      console.error('Error updating user role:', error);
+    }
+  };
+
+  const promoteUserByEmail = async () => {
+    if (!promoteEmail.trim()) return;
+    
+    setPromoteLoading(true);
+    try {
+      const response = await fetch('/api/admin/promote', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: promoteEmail.trim() }),
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        alert(`Successfully promoted ${promoteEmail} to admin!`);
+        setPromoteEmail('');
+        fetchUsers(); // Refresh the users list
+      } else {
+        alert(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('Error promoting user:', error);
+      alert('Error promoting user. Please try again.');
+    } finally {
+      setPromoteLoading(false);
+    }
+  };
+
+  if (status === 'loading') {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+
+  if (!session || session.user?.role !== 'admin') {
+    return null; // Will redirect via useEffect
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Header */}
       <header className="gradient-bg text-white shadow-xl">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <Settings className="h-8 w-8 text-red-400" />
-              <div>
-                <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-                <p className="text-gray-300">Manage fixtures, players, and match data</p>
+        <div className="container mx-auto px-4 py-6">            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <Settings className="h-8 w-8 text-red-400" />
+                <div>
+                  <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+                  <p className="text-gray-300">Manage fixtures, players, and match data</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-4">
+                <UserNav />
+                <Link href="/">
+                  <Button variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-black">
+                    <Home className="mr-2 h-4 w-4" />
+                    Back to Home
+                  </Button>
+                </Link>
               </div>
             </div>
-            <Link href="/">
-              <Button variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-black">
-                <Home className="mr-2 h-4 w-4" />
-                Back to Home
-              </Button>
-            </Link>
-          </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="fixtures">Fixtures</TabsTrigger>
             <TabsTrigger value="ocr">OCR & Classification</TabsTrigger>
             <TabsTrigger value="players">Player CRUD</TabsTrigger>
             <TabsTrigger value="nldata">Natural Language Data</TabsTrigger>
+            <TabsTrigger value="users">User Management</TabsTrigger>
           </TabsList>
 
           {/* Fixtures Tab */}
@@ -341,6 +444,184 @@ export default function AdminDashboard() {
                       Upload File
                     </Button>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* User Management Tab */}
+          <TabsContent value="users" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center">
+                      <Shield className="mr-2 h-5 w-5" />
+                      User Management
+                    </CardTitle>
+                    <CardDescription>Manage user accounts and assign roles</CardDescription>
+                  </div>
+                  <Button onClick={fetchUsers} disabled={loadingUsers}>
+                    <Users className="mr-2 h-4 w-4" />
+                    {loadingUsers ? 'Loading...' : 'Refresh Users'}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {users.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      No users found. Users will appear here after they sign in.
+                    </div>
+                  ) : (
+                    users.map((user) => (
+                      <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold">
+                            {user.email?.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-medium">{user.email}</div>
+                            <div className="text-sm text-gray-500">
+                              Joined: {new Date(user.created_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          <Badge 
+                            variant={user.role === 'admin' ? 'destructive' : 'secondary'}
+                            className={user.role === 'admin' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}
+                          >
+                            {user.role}
+                          </Badge>
+                          <div className="flex space-x-2">
+                            {user.role === 'admin' ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => updateUserRole(user.id, 'user')}
+                                disabled={user.id === session.user?.id}
+                              >
+                                Remove Admin
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => updateUserRole(user.id, 'admin')}
+                              >
+                                Make Admin
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* User Management Tab */}
+          <TabsContent value="users" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>User Management</CardTitle>
+                    <CardDescription>Manage user roles and permissions</CardDescription>
+                  </div>
+                  <Button onClick={fetchUsers} disabled={loadingUsers} className="btn-primary">
+                    <Users className="mr-2 h-4 w-4" />
+                    {loadingUsers ? 'Loading...' : 'Refresh Users'}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* Promote User by Email Section */}
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h3 className="text-lg font-semibold mb-3 text-blue-800">Promote User to Admin</h3>
+                  <p className="text-sm text-blue-600 mb-3">
+                    Enter the Google email address of a user who has already signed in to promote them to admin.
+                  </p>
+                  <div className="flex space-x-2">
+                    <input
+                      type="email"
+                      placeholder="user@gmail.com"
+                      value={promoteEmail}
+                      onChange={(e) => setPromoteEmail(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={promoteLoading}
+                    />
+                    <Button
+                      onClick={promoteUserByEmail}
+                      disabled={promoteLoading || !promoteEmail.trim()}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {promoteLoading ? 'Promoting...' : 'Promote to Admin'}
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  {loadingUsers ? (
+                    <div className="text-center py-8">
+                      <div className="w-8 h-8 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+                      <p className="text-gray-600">Loading users...</p>
+                    </div>
+                  ) : users.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-600">No users found</p>
+                    </div>
+                  ) : (
+                    users.map((user) => (
+                      <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold">
+                            {user.email?.charAt(0).toUpperCase() || 'U'}
+                          </div>
+                          <div>
+                            <p className="font-medium">{user.name || 'Unknown User'}</p>
+                            <p className="text-sm text-gray-600">{user.email}</p>
+                            <p className="text-xs text-gray-500">
+                              Joined: {new Date(user.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                            {user.role === 'admin' ? (
+                              <>
+                                <Shield className="w-3 h-3 mr-1" />
+                                Admin
+                              </>
+                            ) : (
+                              'User'
+                            )}
+                          </Badge>
+                          {user.role === 'admin' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => updateUserRole(user.id, 'user')}
+                              disabled={user.email === session?.user?.email} // Can't demote yourself
+                            >
+                              Demote to User
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              onClick={() => updateUserRole(user.id, 'admin')}
+                              className="bg-green-600 hover:bg-green-700 text-white"
+                            >
+                              Promote to Admin
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>

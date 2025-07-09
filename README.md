@@ -4,6 +4,12 @@ A comprehensive fantasy cricket platform powered by **SportRadar Cricket API** a
 
 ## 🏏 Features
 
+### **Authentication & User Management**
+- **Google OAuth Integration**: Secure sign-in with Google accounts
+- **Role-Based Access Control**: User and Admin roles
+- **Admin Dashboard**: User management and system administration
+- **Session Management**: Secure session handling with Auth.js
+
 ### **Professional Cricket Data Integration**
 - **SportRadar Cricket API**: Official cricket statistics and live data
 - **Real-time Match Data**: Live scores, lineups, and match conditions
@@ -75,19 +81,34 @@ npm install
 cp .env.local.example .env.local
 # Edit .env.local with your API keys
 
+# Set up authentication (see AUTH_SETUP.md for detailed instructions)
+# 1. Configure Google OAuth
+# 2. Set up Neon PostgreSQL database
+# 3. Run database migrations
+
 # Start development server
 npm run dev
 ```
 
 ### **Environment Variables**
 ```env
-# Required
+# Required APIs
 SPORTRADAR_API_KEY=your_sportradar_api_key_here
 OPENAI_API_KEY=your_openai_api_key_here
+
+# Authentication (required)
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=your_strong_secret_key
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+DATABASE_URL=your_neon_database_url
 
 # Optional
 WEATHER_API_KEY=your_weather_api_key_here
 ```
+
+### **Authentication Setup**
+For detailed authentication setup instructions, see [AUTH_SETUP.md](./AUTH_SETUP.md)
 
 ## 📊 SportRadar API Integration
 
