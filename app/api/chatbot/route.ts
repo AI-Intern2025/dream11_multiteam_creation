@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { aiService } from '@/lib/ai-service';
-import { dataIntegrationService } from '@/lib/data-integration';
+import { aiService } from '@/lib/ai-service-enhanced';
+import { neonDB } from '@/lib/neon-db';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,17 +20,17 @@ export async function POST(request: NextRequest) {
     let response = '';
 
     if (matchId) {
-      // Get match analysis for context
-      const enrichedData = await dataIntegrationService.getEnrichedMatchData(matchId);
+      // Get match data from Neon DB
+      const match = await neonDB.getMatchById(parseInt(matchId));
       
-      if (enrichedData) {
+      if (match) {
         response = await aiService.generateChatbotResponse(
           message,
-          enrichedData.match,
-          enrichedData.analysis
+          match,
+          context || {}
         );
       } else {
-        response = "I'd be happy to help with your team selection! However, I couldn't fetch the latest match data at the moment.";
+        response = "I'd be happy to help with your team selection! However, I couldn't fetch the match data at the moment.";
       }
     } else {
       // General cricket advice without specific match context

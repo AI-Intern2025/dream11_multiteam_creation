@@ -42,11 +42,28 @@ export default function TeamsPage({
     );
   };
 
-  const filteredTeams = teams.filter(team => 
-    team.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    team.captain.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    team.viceCaptain.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredTeams = teams.filter(team => {
+    if (!team) return false;
+    
+    // Handle different possible team structures
+    const teamName = team.name || team.teamName || `Team ${team.id || Math.random()}`;
+    const captain = team.captain?.name || team.captain || team.captainName || '';
+    const viceCaptain = team.viceCaptain?.name || team.viceCaptain || team.viceCaptainName || '';
+    
+    return (
+      teamName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      captain.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      viceCaptain.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  });
+
+  // Debug logging to understand the teams structure
+  useEffect(() => {
+    if (teams.length > 0) {
+      console.log('Teams data structure:', teams[0]);
+      console.log('Available team properties:', Object.keys(teams[0] || {}));
+    }
+  }, [teams]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -149,24 +166,28 @@ export default function TeamsPage({
             {!loading && teams.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredTeams.map((team) => (
-                <Card key={team.id} className="card-hover">
+                <Card key={team.id || Math.random()} className="card-hover">
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{team.name}</CardTitle>
+                      <CardTitle className="text-lg">{team.name || team.teamName || `Team ${team.id || 'Unknown'}`}</CardTitle>
                       <div className="flex items-center space-x-2">
-                        <Badge variant="secondary">{team.strategy}</Badge>
+                        <Badge variant="secondary">{team.strategy || 'AI Generated'}</Badge>
                         <Badge variant="outline" className={
-                          team.riskProfile === 'conservative' ? 'text-green-600' :
-                          team.riskProfile === 'aggressive' ? 'text-red-600' : 'text-blue-600'
+                          (team.riskProfile || 'balanced') === 'conservative' ? 'text-green-600' :
+                          (team.riskProfile || 'balanced') === 'aggressive' ? 'text-red-600' : 'text-blue-600'
                         }>
-                          {team.riskProfile}
+                          {team.riskProfile || 'balanced'}
                         </Badge>
                       </div>
                     </div>
                     <CardDescription>
                       <div className="space-y-1">
-                        <div><strong>C:</strong> {team.captain}</div>
-                        <div><strong>VC:</strong> {team.viceCaptain}</div>
+                        <div><strong>C:</strong> {
+                          team.captain?.name || team.captain || team.captainName || 'TBD'
+                        }</div>
+                        <div><strong>VC:</strong> {
+                          team.viceCaptain?.name || team.viceCaptain || team.viceCaptainName || 'TBD'
+                        }</div>
                       </div>
                     </CardDescription>
                   </CardHeader>
@@ -174,19 +195,19 @@ export default function TeamsPage({
                     <div className="space-y-3">
                       <div className="flex items-center justify-between text-sm">
                         <span>AI Confidence:</span>
-                        <span className="font-medium">{team.confidence}%</span>
+                        <span className="font-medium">{team.confidence || 75}%</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span>Strategy:</span>
-                        <span className="font-medium text-blue-600">{team.strategy}</span>
+                        <span className="font-medium text-blue-600">{team.strategy || 'AI Generated'}</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span>Risk Profile:</span>
                         <span className={`font-medium ${
-                          team.riskProfile === 'conservative' ? 'text-green-600' :
-                          team.riskProfile === 'aggressive' ? 'text-red-600' : 'text-blue-600'
+                          (team.riskProfile || 'balanced') === 'conservative' ? 'text-green-600' :
+                          (team.riskProfile || 'balanced') === 'aggressive' ? 'text-red-600' : 'text-blue-600'
                         }`}>
-                          {team.riskProfile}
+                          {team.riskProfile || 'balanced'}
                         </span>
                       </div>
                       <div className="flex space-x-2">
@@ -233,12 +254,20 @@ export default function TeamsPage({
                         </tr>
                       </thead>
                       <tbody>
-                        {teams.find(t => t.id === selectedTeam)?.players.map((player, index) => (
+                        {teams.find(t => t.id === selectedTeam)?.players?.map((player: any, index: number) => (
                           <tr key={index} className="border-b">
-                            <td className="p-2 font-medium">{player.name}</td>
-                            <td className="p-2">{player.role}</td>
-                            <td className="p-2 text-sm">{player.reason || 'AI recommended'}</td>
-                            <td className="p-2">{player.confidence || 75}%</td>
+                            <td className="p-2 font-medium">{
+                              player?.name || `Player ${index + 1}`
+                            }</td>
+                            <td className="p-2">{
+                              player?.player_role || player?.role || 'Unknown'
+                            }</td>
+                            <td className="p-2 text-sm">{
+                              player?.reason || 'AI recommended'
+                            }</td>
+                            <td className="p-2">{
+                              player?.confidence || 75
+                            }%</td>
                           </tr>
                         ))}
                       </tbody>

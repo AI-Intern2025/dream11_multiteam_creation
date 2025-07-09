@@ -1,18 +1,55 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Search, Calendar, Filter, TrendingUp, Users, Trophy, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { Search, Calendar, Filter, TrendingUp, Users, Trophy, RefreshCw, Wifi, WifiOff, LogOut } from 'lucide-react';
 import Link from 'next/link';
 import { useCricketMatches } from '@/hooks/use-cricket-data';
+import { useAuth } from '@/hooks/use-auth';
 
 export default function Home() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFormat, setSelectedFormat] = useState('all');
   const { matches, loading, error, refetch } = useCricketMatches();
+  const { user, isAuthenticated, isLoading, logout, isAdmin } = useAuth();
+  const router = useRouter();
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.push('/login');
+    }
+  }, [isAuthenticated, isLoading, router]);
+
+  // Show loading while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <Card className="w-96">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-center space-x-2">
+              <RefreshCw className="h-5 w-5 animate-spin" />
+              <span>Loading...</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated (will redirect)
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
 
   const filteredMatches = matches.filter(match => {
     if (!match) return false;
@@ -43,11 +80,25 @@ export default function Home() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <Link href="/admin">
-                <Button variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-black">
-                  Admin Panel
-                </Button>
-              </Link>
+              <span className="text-right">
+                <span className="text-sm font-medium block">Welcome, {user?.username}</span>
+                <span className="text-xs text-gray-300 capitalize block">{user?.role} Account</span>
+              </span>
+              {isAdmin && (
+                <Link href="/admin">
+                  <Button variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-black">
+                    Admin Panel
+                  </Button>
+                </Link>
+              )}
+              <Button 
+                variant="outline" 
+                className="bg-transparent border-white text-white hover:bg-white hover:text-black"
+                onClick={handleLogout}
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                Logout
+              </Button>
               <Link href="/analytics">
                 <Button className="bg-red-600 hover:bg-red-700">
                   <TrendingUp className="mr-2 h-4 w-4" />

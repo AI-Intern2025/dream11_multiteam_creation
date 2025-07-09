@@ -209,8 +209,8 @@ CRITICAL: You must respond with ONLY a valid JSON object. Do not include any exp
       format: matchData.format,
       venue: {
         name: matchData.venue?.name,
-        city: matchData.venue?.city,
-        country: matchData.venue?.country
+        city: matchData.venue?.city_name,
+        country: matchData.venue?.country_name
       },
       competitors: matchData.competitors?.map(comp => ({
         name: comp.name,
@@ -219,7 +219,7 @@ CRITICAL: You must respond with ONLY a valid JSON object. Do not include any exp
       })),
       tournament: {
         name: matchData.tournament?.name,
-        type: matchData.tournament?.type
+        type: (matchData.tournament as any)?.type || 'Unknown'
       }
     };
 
@@ -351,10 +351,10 @@ Provide specific, actionable insights based on the data provided.
     
     // Extract some player names from the data
     const availablePlayers = playerStats.slice(0, 6);
-    const topBatsman = availablePlayers.find(p => p.statistics?.batting_average > 30)?.name || "Top Batsman";
-    const topBowler = availablePlayers.find(p => p.statistics?.wickets_taken > 10)?.name || "Top Bowler";
+    const topBatsman = availablePlayers.find(p => (p.statistics?.batting_average || 0) > 30)?.name || "Top Batsman";
+    const topBowler = availablePlayers.find(p => (p.statistics?.wickets_taken || 0) > 10)?.name || "Top Bowler";
     const allRounder = availablePlayers.find(p => 
-      p.statistics?.batting_average > 20 && p.statistics?.wickets_taken > 5
+      (p.statistics?.batting_average || 0) > 20 && (p.statistics?.wickets_taken || 0) > 5
     )?.name || "All-rounder";
 
     return {

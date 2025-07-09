@@ -395,7 +395,7 @@ class DataIntegrationService {
     // Select players based on strategy
     const selectedPlayers = this.selectPlayersForTeam(players, analysis, strategy);
     
-    team.players = selectedPlayers;
+    team.players = selectedPlayers as any;
     team.captain = selectedPlayers[0];
     team.viceCaptain = selectedPlayers[1];
     team.usedCredits = selectedPlayers.reduce((sum, p) => sum + (p.credits || 8), 0);
@@ -410,7 +410,7 @@ class DataIntegrationService {
     strategy: string
   ): any[] {
     // Simple player selection logic
-    const selectedPlayers = [];
+    const selectedPlayers: any[] = [];
     const roleTargets = { BAT: 4, BOWL: 4, ALL: 2, WK: 1 };
     
     // Group players by role

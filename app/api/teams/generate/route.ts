@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dataIntegrationService } from '@/lib/data-integration';
+import { aiService } from '@/lib/ai-service-enhanced';
+import { authService } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,10 +47,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Authenticate user (optional, for tracking purposes)
+    const authHeader = request.headers.get('authorization');
+    let user = null;
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const verification = authService.verifyToken(token);
+      if (verification.valid) {
+        user = verification.user;
+      }
+    }
+
     console.log(`🔍 Generating ${parsedTeamCount} teams for match ${matchId} with strategy ${strategy}`);
 
     // Check if required API keys are configured
-    const requiredKeys = ['SPORTRADAR_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'];
+    const requiredKeys = ['DATABASE_URL', 'OPENAI_API_KEY'];
     const missingKeys = requiredKeys.filter(key => !process.env[key]);
     
     if (missingKeys.length > 0) {
@@ -64,12 +77,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const teams = await dataIntegrationService.generateTeamsWithStrategy(
-      matchId,
+    // Use enhanced AI service for team generation
+    const teams = await aiService.generateTeamsWithAIStrategy({
+      matchId: parseInt(matchId),
       strategy,
-      parsedTeamCount,
+      teamCount: parsedTeamCount,
       userPreferences
-    );
+    });
 
     if (!teams || teams.length === 0) {
       console.log(`❌ No teams generated for match ${matchId}`);
@@ -85,12 +99,34 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`✅ Successfully generated ${teams.length} teams for match ${matchId}`);
+    
+    // Transform AI team analysis into frontend-friendly format
+    const formattedTeams = teams.map((team, index) => ({
+      id: `team-${Date.now()}-${index}`,
+      name: `AI Team ${index + 1}`,
+      teamName: `AI Team ${index + 1}`,
+      strategy: strategy,
+      riskProfile: team.riskScore > 70 ? 'aggressive' : team.riskScore < 40 ? 'conservative' : 'balanced',
+      confidence: team.confidence,
+      captain: team.captain?.name || 'TBD',
+      captainName: team.captain?.name || 'TBD',
+      viceCaptain: team.viceCaptain?.name || 'TBD', 
+      viceCaptainName: team.viceCaptain?.name || 'TBD',
+      players: team.players || [],
+      totalCredits: team.totalCredits,
+      expectedPoints: team.expectedPoints,
+      roleBalance: team.roleBalance,
+      reasoning: team.reasoning,
+      // For detailed view - keep original objects
+      _original: team
+    }));
+
     return NextResponse.json({
       success: true,
       data: {
-        teams,
+        teams: formattedTeams,
         strategy,
-        teamCount: teams.length,
+        teamCount: formattedTeams.length,
         generatedAt: new Date().toISOString()
       }
     });
