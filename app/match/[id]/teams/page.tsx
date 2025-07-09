@@ -1,0 +1,433 @@
+"use client";
+
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ArrowLeft, Download, Search, Users, Trophy, TrendingUp, Target, BarChart3, Eye, RefreshCw, Sparkles } from 'lucide-react';
+import Link from 'next/link';
+import { useTeamGeneration, useMatchData } from '@/hooks/use-cricket-data';
+
+export default function TeamsPage({ 
+  params, 
+  searchParams 
+}: { 
+  params: { id: string };
+  searchParams: { strategy?: string; teams?: string };
+}) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedTeam, setSelectedTeam] = useState<number | null>(null);
+  const [hasGenerated, setHasGenerated] = useState(false);
+  
+  const { teams, loading, error, generateTeams } = useTeamGeneration();
+  const { data: matchData } = useMatchData(params.id);
+
+  useEffect(() => {
+    if (!hasGenerated && searchParams.strategy && searchParams.teams) {
+      handleGenerateTeams();
+      setHasGenerated(true);
+    }
+  }, [searchParams.strategy, searchParams.teams, hasGenerated]);
+
+  const handleGenerateTeams = async () => {
+    if (!searchParams.strategy || !searchParams.teams) return;
+    
+    await generateTeams(
+      params.id,
+      searchParams.strategy,
+      parseInt(searchParams.teams),
+      {} // user preferences
+    );
+  };
+
+  const filteredTeams = teams.filter(team => 
+    team.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    team.captain.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    team.viceCaptain.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Header */}
+      <header className="gradient-bg text-white shadow-xl">
+        <div className="container mx-auto px-4 py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <Link href={`/match/${params.id}`}>
+                <Button variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-black">
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+              </Link>
+              <div>
+                <h1 className="text-2xl font-bold">Generated Teams</h1>
+                <p className="text-gray-300 flex items-center space-x-2">
+                  <span>{searchParams.teams || 10} AI-optimized teams using {searchParams.strategy || 'strategy'}</span>
+                  <Sparkles className="h-4 w-4 text-yellow-400" />
+                </p>
+              </div>
+            </div>
+            <Button className="bg-red-600 hover:bg-red-700">
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8">
+        {/* Loading State */}
+        {loading && (
+          <div className="text-center py-12">
+            <RefreshCw className="h-8 w-8 text-gray-400 mx-auto mb-4 animate-spin" />
+            <div className="text-gray-500 text-lg">Generating AI-optimized teams...</div>
+            <p className="text-gray-400 mt-2">Analyzing player form, conditions, and match dynamics</p>
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && (
+          <div className="text-center py-12">
+            <div className="text-red-500 text-lg">Error generating teams</div>
+            <p className="text-gray-400 mt-2">{error}</p>
+            <Button onClick={handleGenerateTeams} className="mt-4">
+              Try Again
+            </Button>
+          </div>
+        )}
+
+        <Tabs defaultValue="teams" className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="teams">Teams</TabsTrigger>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
+            <TabsTrigger value="performance">Performance</TabsTrigger>
+          </TabsList>
+
+          {/* Teams Tab */}
+          <TabsContent value="teams" className="space-y-6">
+            {/* Search and Filter */}
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center space-x-4">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Search teams, captains, or players..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <Button variant="outline">
+                    View All
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* AI Analysis Summary */}
+            {matchData?.analysis && !loading && (
+              <Card className="bg-gradient-to-r from-green-50 to-blue-50 border-green-200">
+                <CardContent className="pt-6">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Sparkles className="h-5 w-5 text-green-500" />
+                    <span className="font-semibold">AI Analysis Applied</span>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Teams generated using live match data, player form analysis, weather conditions, and AI predictions. 
+                    Match type: <strong>{matchData.analysis.matchPrediction?.matchType}</strong>, 
+                    Predicted winner: <strong>{matchData.analysis.matchPrediction?.winnerPrediction}</strong>
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Teams Grid */}
+            {!loading && teams.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredTeams.map((team) => (
+                <Card key={team.id} className="card-hover">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">{team.name}</CardTitle>
+                      <div className="flex items-center space-x-2">
+                        <Badge variant="secondary">{team.strategy}</Badge>
+                        <Badge variant="outline" className={
+                          team.riskProfile === 'conservative' ? 'text-green-600' :
+                          team.riskProfile === 'aggressive' ? 'text-red-600' : 'text-blue-600'
+                        }>
+                          {team.riskProfile}
+                        </Badge>
+                      </div>
+                    </div>
+                    <CardDescription>
+                      <div className="space-y-1">
+                        <div><strong>C:</strong> {team.captain}</div>
+                        <div><strong>VC:</strong> {team.viceCaptain}</div>
+                      </div>
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span>AI Confidence:</span>
+                        <span className="font-medium">{team.confidence}%</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span>Strategy:</span>
+                        <span className="font-medium text-blue-600">{team.strategy}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span>Risk Profile:</span>
+                        <span className={`font-medium ${
+                          team.riskProfile === 'conservative' ? 'text-green-600' :
+                          team.riskProfile === 'aggressive' ? 'text-red-600' : 'text-blue-600'
+                        }`}>
+                          {team.riskProfile}
+                        </span>
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedTeam(team.id)}
+                          className="flex-1"
+                        >
+                          <Eye className="mr-2 h-4 w-4" />
+                          View
+                        </Button>
+                        <Button variant="outline" size="sm" className="flex-1">
+                          Edit
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              </div>
+            )}
+
+            {/* Team Detail Modal */}
+            {selectedTeam && (
+              <Card className="mt-6">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Team {selectedTeam} Details</CardTitle>
+                    <Button variant="outline" onClick={() => setSelectedTeam(null)}>
+                      Close
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left p-2">Player</th>
+                          <th className="text-left p-2">Role</th>
+                          <th className="text-left p-2">Reason</th>
+                          <th className="text-left p-2">Confidence</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {teams.find(t => t.id === selectedTeam)?.players.map((player, index) => (
+                          <tr key={index} className="border-b">
+                            <td className="p-2 font-medium">{player.name}</td>
+                            <td className="p-2">{player.role}</td>
+                            <td className="p-2 text-sm">{player.reason || 'AI recommended'}</td>
+                            <td className="p-2">{player.confidence || 75}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {!loading && teams.length === 0 && !error && (
+              <div className="text-center py-12">
+                <div className="text-gray-500 text-lg">No teams generated yet</div>
+                <p className="text-gray-400 mt-2">Use the strategy selection to create AI-optimized teams</p>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Analytics Tab */}
+          <TabsContent value="analytics" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Summary of Teams Created</CardTitle>
+                <CardDescription>AI-powered portfolio analytics and team insights</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h4 className="font-semibold text-blue-800">AI Optimization</h4>
+                    <p className="text-2xl font-bold text-blue-600">Active</p>
+                    <p className="text-sm text-blue-600">Live data integration</p>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <h4 className="font-semibold text-green-800">Strategy Diversity</h4>
+                    <p className="text-2xl font-bold text-green-600">{new Set(teams.map(t => t.riskProfile)).size}</p>
+                    <p className="text-sm text-green-600">Risk profiles used</p>
+                  </div>
+                  <div className="bg-purple-50 p-4 rounded-lg">
+                    <h4 className="font-semibold text-purple-800">Avg Confidence</h4>
+                    <p className="text-2xl font-bold text-purple-600">
+                      {teams.length > 0 ? Math.round(teams.reduce((acc, t) => acc + t.confidence, 0) / teams.length) : 0}%
+                    </p>
+                    <p className="text-sm text-purple-600">AI prediction confidence</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Teams</CardTitle>
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{teams.length}</div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Avg Confidence</CardTitle>
+                  <Target className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {teams.length > 0 ? Math.round(teams.reduce((acc, t) => acc + t.confidence, 0) / teams.length) : 0}%
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Strategies Used</CardTitle>
+                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{new Set(teams.map(t => t.strategy)).size}</div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Top Player</CardTitle>
+                  <Trophy className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-lg font-bold">
+                    {teams.length > 0 ? teams[0]?.captain || 'N/A' : 'N/A'}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Most selected</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>AI Strategy Analysis</CardTitle>
+                <CardDescription>Breakdown of AI-generated team strategies and risk profiles</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-medium mb-2">Risk Profile Distribution</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {['conservative', 'balanced', 'aggressive'].map((profile) => {
+                        const count = teams.filter(t => t.riskProfile === profile).length;
+                        return count > 0 ? (
+                          <Badge key={profile} variant="outline" className={
+                            profile === 'conservative' ? 'text-green-600' :
+                            profile === 'aggressive' ? 'text-red-600' : 'text-blue-600'
+                          }>
+                            {profile}: {count}
+                          </Badge>
+                        ) : null;
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="font-medium mb-2">Captain Variety</h4>
+                    <div className="text-2xl font-bold text-blue-600">
+                      {new Set(teams.map(t => t.captain)).size} different captains
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="font-medium mb-2">Strategy Types</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from(new Set(teams.map(t => t.strategy))).map((strategy) => (
+                        <Badge key={strategy} variant="default">{strategy}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Performance Tab */}
+          <TabsContent value="performance" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Fantasy Performance Tracker</CardTitle>
+                <CardDescription>AI-powered performance prediction and analysis</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">AI Confidence</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold text-green-600">
+                          {teams.length > 0 ? Math.round(teams.reduce((acc, t) => acc + t.confidence, 0) / teams.length) : 0}%
+                        </div>
+                        <p className="text-xs text-gray-500">Average prediction confidence</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Strategy Diversity</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-lg font-bold">{new Set(teams.map(t => t.riskProfile)).size}/3</div>
+                        <p className="text-xs text-gray-500">Risk profiles covered</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Data Integration</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold text-blue-600">Live</div>
+                        <p className="text-xs text-gray-500">Real-time cricket data</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                  
+                  <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-lg">
+                    <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">Live Performance Tracking</h3>
+                    <p className="text-gray-500">Real-time performance data and AI insights will appear here once the match begins</p>
+                    <p className="text-sm text-gray-400 mt-2">Track team performance, rank changes, and AI prediction accuracy</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </main>
+    </div>
+  );
+}
