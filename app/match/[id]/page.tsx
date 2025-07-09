@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,10 +8,13 @@ import { Input } from '@/components/ui/input';
 import { ArrowLeft, Calendar, MapPin, Clock, Users, Trophy, RefreshCw, Cloud, Thermometer } from 'lucide-react';
 import Link from 'next/link';
 import { useMatchData } from '@/hooks/use-cricket-data';
+import { useParams } from 'next/navigation';
 
-export default function MatchDetail({ params }: { params: { id: string } }) {
+export default function MatchDetail() {
+  const params = useParams();
+  const matchId = params?.id as string;
   const [teamCount, setTeamCount] = useState(10);
-  const { data: matchData, loading, error } = useMatchData(params.id);
+  const { data: matchData, loading, error } = useMatchData(matchId);
 
   if (loading) {
     return (
@@ -255,7 +258,7 @@ export default function MatchDetail({ params }: { params: { id: string } }) {
                   color: 'bg-teal-50 border-teal-200'
                 }
               ].map((strategy) => (
-                <Link key={strategy.id} href={`/match/${params.id}/strategy/${strategy.id}?teams=${teamCount}`}>
+                <Link key={strategy.id} href={`/match/${matchId}/strategy/${strategy.id}?teams=${teamCount}`}>
                   <Card className={`card-hover cursor-pointer ${strategy.color} border-2 hover:shadow-lg`}>
                     <CardContent className="p-6">
                       <div className="text-center">

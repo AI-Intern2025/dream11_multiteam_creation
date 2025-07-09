@@ -1,13 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  images: { unoptimized: true },
-  optimizeFonts: false,
-  experimental: {
-    serverComponentsExternalPackages: ['axios']
-  }
+  reactStrictMode: true,
+  // Transpile ESM-only packages for both client and server
+  transpilePackages: ['lucide-react'],
 };
 
 module.exports = nextConfig;

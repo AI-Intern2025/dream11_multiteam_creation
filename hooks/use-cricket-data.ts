@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import useSWR from 'swr';
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 interface CricketMatch {
   id: string;
@@ -28,68 +31,32 @@ interface EnrichedMatchData {
 }
 
 export function useCricketMatches() {
-  const [matches, setMatches] = useState<CricketMatch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Use SWR for data fetching and caching
+  const { data, error, isLoading, mutate } = useSWR('/api/matches', fetcher, {
+    revalidateOnFocus: false
+  });
 
-  useEffect(() => {
-    fetchMatches();
-  }, []);
-
-  const fetchMatches = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch('/api/matches');
-      const result = await response.json();
-
-      if (result.success) {
-        // Data is already transformed by the API endpoint
-        setMatches(result.data);
-      } else {
-        setError(result.error || 'Failed to fetch matches');
-      }
-    } catch (err) {
-      setError('Network error while fetching matches');
-      console.error('Error fetching matches:', err);
-    } finally {
-      setLoading(false);
-    }
+  return {
+    matches: data?.success ? data.data : [],
+    loading: isLoading,
+    error: error ? (error.message || 'Failed to fetch matches') : null,
+    refetch: mutate,
   };
-
-  return { matches, loading, error, refetch: fetchMatches };
 }
 
 export function useMatchData(matchId: string) {
-  const [data, setData] = useState<EnrichedMatchData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error, isLoading, mutate } = useSWR(
+    () => (matchId ? `/api/matches/${matchId}` : null),
+    fetcher,
+    { revalidateOnFocus: false }
+  );
 
-  useEffect(() => {
-    if (matchId) {
-      fetchMatchData();
-    }
-  }, [matchId]);
-
-  const fetchMatchData = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(`/api/matches/${matchId}`);
-      const result = await response.json();
-
-      if (result.success) {
-        setData(result.data);
-      } else {
-        setError(result.error || 'Failed to fetch match data');
-      }
-    } catch (err) {
-      setError('Network error while fetching match data');
-      console.error('Error fetching match data:', err);
-    } finally {
-      setLoading(false);
-    }
+  return {
+    data: data?.success ? data.data : null,
+    loading: isLoading,
+    error: error ? (error.message || 'Failed to fetch match data') : null,
+    refetch: mutate,
   };
-
-  return { data, loading, error, refetch: fetchMatchData };
 }
 
 export function useTeamGeneration() {

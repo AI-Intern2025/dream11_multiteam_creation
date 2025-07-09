@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,48 +8,49 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ArrowLeft, Download, Search, Users, Trophy, TrendingUp, Target, BarChart3, Eye, RefreshCw, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import { useTeamGeneration, useMatchData } from '@/hooks/use-cricket-data';
+import { useTeamGeneration, useMatchData, useChatbot } from '@/hooks/use-cricket-data';
+import { useParams, useSearchParams } from 'next/navigation';
 
-export default function TeamsPage({ 
-  params, 
-  searchParams 
-}: { 
-  params: { id: string };
-  searchParams: { strategy?: string; teams?: string };
-}) {
+export default function TeamsPage() {
+  const params = useParams();
+  const searchParams = useSearchParams();
+  // Convert Next.js proxy params to plain object to avoid sync-access warnings
+  const { id: matchId } = React.useMemo(() => JSON.parse(JSON.stringify(params)), [params]);
+  const { strategy, teams: teamsParam } = React.useMemo(
+    () => JSON.parse(JSON.stringify(Object.fromEntries(searchParams.entries()))),
+    [searchParams]
+  );
+
+  // State to control strategy wizard and generation
+  const [hasGenerated, setHasGenerated] = useState(false);
+  const {
+    teams,
+    loading,
+    error,
+    generateTeams
+  } = useTeamGeneration();
+  const { data: matchData } = useMatchData(matchId);
+
+  // Handler to trigger team generation from wizard
+  const onGenerate = async (userPreferences: any, teamCount: number) => {
+    setHasGenerated(false);
+    await generateTeams(matchId, 'strategy1', teamCount, userPreferences);
+    setHasGenerated(true);
+  };
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTeam, setSelectedTeam] = useState<number | null>(null);
-  const [hasGenerated, setHasGenerated] = useState(false);
-  
-  const { teams, loading, error, generateTeams } = useTeamGeneration();
-  const { data: matchData } = useMatchData(params.id);
 
-  useEffect(() => {
-    if (!hasGenerated && searchParams.strategy && searchParams.teams) {
-      handleGenerateTeams();
-      setHasGenerated(true);
-    }
-  }, [searchParams.strategy, searchParams.teams, hasGenerated]);
-
-  const handleGenerateTeams = async () => {
-    if (!searchParams.strategy || !searchParams.teams) return;
-    
-    await generateTeams(
-      params.id,
-      searchParams.strategy,
-      parseInt(searchParams.teams),
-      {} // user preferences
-    );
-  };
+  // Skip auto-generate; strategy is managed via wizard
 
   const filteredTeams = teams.filter(team => {
     if (!team) return false;
-    
+
     // Handle different possible team structures
     const teamName = team.name || team.teamName || `Team ${team.id || Math.random()}`;
     const captain = team.captain?.name || team.captain || team.captainName || '';
     const viceCaptain = team.viceCaptain?.name || team.viceCaptain || team.viceCaptainName || '';
-    
+
     return (
       teamName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       captain.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -65,6 +66,13 @@ export default function TeamsPage({
     }
   }, [teams]);
 
+  // If no teams generated yet, show AI chatbot wizard
+  if (!hasGenerated) {
+    return (
+      <Strategy1Wizard matchId={matchId} onGenerate={onGenerate} />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Header */}
@@ -72,7 +80,7 @@ export default function TeamsPage({
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <Link href={`/match/${params.id}`}>
+              <Link href={`/match/${matchId}`}>
                 <Button variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-black">
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Back
@@ -81,7 +89,7 @@ export default function TeamsPage({
               <div>
                 <h1 className="text-2xl font-bold">Generated Teams</h1>
                 <p className="text-gray-300 flex items-center space-x-2">
-                  <span>{searchParams.teams || 10} AI-optimized teams using {searchParams.strategy || 'strategy'}</span>
+                  <span>{teamsParam || 10} AI-optimized teams using {strategy || 'strategy'}</span>
                   <Sparkles className="h-4 w-4 text-yellow-400" />
                 </p>
               </div>
@@ -457,6 +465,108 @@ export default function TeamsPage({
           </TabsContent>
         </Tabs>
       </main>
+    </div>
+  );
+}
+
+// Strategy 1: AI-Guided Chatbot Wizard
+function Strategy1Wizard({ matchId, onGenerate }: { matchId: string; onGenerate: (prefs: any, count: number) => void }) {
+  const [selectedPills, setSelectedPills] = useState<string[]>([]);
+  const [customInput, setCustomInput] = useState('');
+  const [messages, setMessages] = useState<{ sender: 'user' | 'ai'; text: string }[]>([]);
+  const { sendMessage, loading: chatbotLoading, error: chatbotError } = useChatbot();
+  const [teamCount, setTeamCount] = useState(10);
+  const [stage, setStage] = useState<'pills' | 'analysis' | 'distribution'>('pills');
+  const pillOptions = ['Balance Bat/Bowl', 'Aggressive Batting', 'All-round Strength', 'Pitch-friendly Picks', 'Weather-proof Picks'];
+  // Fetch match analysis for default captaincy options
+  const { data: matchData } = useMatchData(matchId);
+  const capAnalysis = matchData?.analysis?.captaincy;
+  const defaultCombos = capAnalysis ? [
+    { captain: capAnalysis.primary.name, viceCaptain: capAnalysis.secondary.name, percentage: 50 },
+    { captain: capAnalysis.secondary.name, viceCaptain: capAnalysis.primary.name, percentage: 50 }
+  ] : [];
+  const [combos, setCombos] = useState<{ captain: string; viceCaptain: string; percentage: number }[]>(defaultCombos);
+
+  const handlePillClick = (pill: string) => {
+    if (!selectedPills.includes(pill)) setSelectedPills([...selectedPills, pill]);
+  };
+  const handleRemovePill = (pill: string) => setSelectedPills(selectedPills.filter(p => p !== pill));
+  const handleAddCustom = () => {
+    if (customInput) {
+      setSelectedPills([...selectedPills, customInput]);
+      setCustomInput('');
+    }
+  };
+
+  const handleAnalyze = async () => {
+    const userMsg = `Preferences: ${selectedPills.join(', ')}.`;
+    setMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
+    const aiResp = await sendMessage(userMsg, matchId, null);
+    setMessages(prev => [...prev, { sender: 'ai', text: aiResp }]);
+    setStage('distribution');
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <h2 className="text-2xl font-bold mb-4">AI-Guided Team Creation Assistant</h2>
+      <p className="mb-2">Select preferences or add your own:</p>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {pillOptions.map(p => (
+          <Button key={p} variant={selectedPills.includes(p) ? 'secondary' : 'outline'} onClick={() => handlePillClick(p)}>
+            {p}
+          </Button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 mb-4">
+        <Input placeholder="Custom preference" value={customInput} onChange={e => setCustomInput(e.target.value)} className="flex-1" />
+        <Button onClick={handleAddCustom}>Add</Button>
+      </div>
+      <div className="mb-4">
+        {selectedPills.map(p => (
+          <Badge key={p} className="mr-2 cursor-pointer" onClick={() => handleRemovePill(p)}>
+            {p} ×
+          </Badge>
+        ))}
+      </div>
+      <div className="mb-4">
+        <label className="block mb-1">Number of Teams:</label>
+        <Input type="number" min={1} max={20} value={teamCount} onChange={e => setTeamCount(parseInt(e.target.value) || 1)} />
+      </div>
+      {stage === 'pills' && (
+        <Button onClick={handleAnalyze} disabled={chatbotLoading} className="mb-4">
+          {chatbotLoading ? 'Analyzing...' : 'Get Recommendations'}
+        </Button>
+      )}
+      {chatbotError && <div className="text-red-500 mb-2">{chatbotError}</div>}
+      {stage === 'analysis' || stage === 'distribution' ? (
+       <div className="bg-gray-100 p-4 rounded space-y-2 h-64 overflow-y-auto">
+         {messages.map((m, i) => (
+           <div key={i} className={m.sender === 'user' ? 'text-right' : 'text-left'}>
+             <span className={`inline-block p-2 rounded ${m.sender === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}>{m.text}</span>
+           </div>
+         ))}
+       </div>
+      ) : null}
+      {stage === 'distribution' && combos.length > 0 && (
+        <div className="mt-4 bg-white p-4 rounded shadow">
+          <h3 className="font-semibold mb-2">Captain/Vice-Captain Distribution:</h3>
+          {combos.map((c, idx) => (
+            <div key={idx} className="flex items-center mb-2">
+              <span className="mr-2">C: {c.captain}, VC: {c.viceCaptain}</span>
+              <Input type="number" min={0} max={100} value={c.percentage}
+                onChange={e => {
+                  const val = parseInt(e.target.value) || 0;
+                  setCombos(prev => prev.map((item, i) => i === idx ? { ...item, percentage: val } : item));
+                }}
+                className="w-16 mr-2" />
+              %
+            </div>
+          ))}
+          <Button onClick={() => onGenerate({ aiPrompt: messages.find(m => m.sender==='ai')?.text, distribution: combos }, teamCount)}>
+            Finalize Teams
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
