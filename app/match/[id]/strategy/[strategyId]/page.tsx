@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, use } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, MessageCircle, Send, Users, Trophy, Target, BarChart3, Bot, Sparkles } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Send, Users, Trophy, Target, BarChart3, Bot, Sparkles, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useMatchData, useChatbot } from '@/hooks/use-cricket-data';
 
@@ -89,23 +89,27 @@ const chatbotQuestions = [
 ];
 
 export default function StrategyPage({ 
-  params, 
-  searchParams 
-}: { 
-  params: { id: string; strategyId: string };
-  searchParams: { teams?: string };
+  params,
+  searchParams
+}: {
+  params: Promise<{ id: string; strategyId: string }>;
+  searchParams: Promise<{ teams?: string }>;
 }) {
+  const resolvedParams = use(params);
+  const resolvedSearchParams = use(searchParams);
   const [chatResponses, setChatResponses] = useState<Record<number, string[]>>({});
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', content: string}>>([]);
   const [currentMessage, setCurrentMessage] = useState('');
+  const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]);
+  const [generatedTeams, setGeneratedTeams] = useState<Array<{ captain: string; viceCaptain: string; players?: string[] }>>([]);
   
-  const { data: matchData } = useMatchData(params.id);
+  const { data: matchData } = useMatchData(resolvedParams.id);
   const { sendMessage, loading: chatLoading } = useChatbot();
 
-  const strategy = strategyConfigs[params.strategyId as keyof typeof strategyConfigs];
-  const teamCount = searchParams.teams || '10';
+  const strategy = strategyConfigs[resolvedParams.strategyId as keyof typeof strategyConfigs];
+  const teamCount = resolvedSearchParams.teams || '10';
 
   const handleSendMessage = async () => {
     if (!currentMessage.trim()) return;
@@ -114,7 +118,7 @@ export default function StrategyPage({
     setCurrentMessage('');
     setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
 
-    const response = await sendMessage(userMessage, params.id);
+    const response = await sendMessage(userMessage, resolvedParams.id);
     setChatMessages(prev => [...prev, { role: 'assistant', content: response }]);
   };
 
@@ -264,7 +268,7 @@ export default function StrategyPage({
               ))}
             </div>
             
-            <Link href={`/match/${params.id}/teams?strategy=${params.strategyId}&teams=${teamCount}`}>
+            <Link href={`/match/${resolvedParams.id}/teams?strategy=${resolvedParams.strategyId}&teams=${teamCount}`}>
               <Button className="w-full btn-primary">
                 <Send className="mr-2 h-4 w-4" />
                 Generate {teamCount} AI-Optimized Teams
@@ -276,52 +280,295 @@ export default function StrategyPage({
     </div>
   );
 
-  const renderSameXI = () => (
-    <Card>
-      <CardHeader>
-        <CardTitle>Same XI, Different Captains</CardTitle>
-        <CardDescription>Create your core XI and order captain/vice-captain preferences</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          <div>
-            <h4 className="font-medium mb-3">Create Your Base XI</h4>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-              <p className="text-sm text-gray-600 mb-4">Select 11 players for your base team</p>
-              <Button variant="outline">Open Team Builder</Button>
-            </div>
-          </div>
-          
-          <div className="text-center text-gray-500">OR</div>
-          
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-            <p className="text-sm text-gray-600 mb-4">Upload your Dream11 team screenshot</p>
-            <Button variant="outline">Choose File</Button>
-          </div>
-          
-          <div className="space-y-3">
-            <h4 className="font-medium">Captain/Vice-Captain Priority</h4>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium mb-1">High Priority</label>
-                <Input placeholder="e.g., Virat Kohli" />
+  const renderSameXI = () => {
+    const allPlayers = matchData?.playerProfiles || matchData?.lineups || [];
+    // Get the two teams' ids, abbreviations, and names from the match object
+    const getTeamKeys = (teamObj: any) => [teamObj?.id, teamObj?.abbreviation, teamObj?.name].filter(Boolean);
+    const team1Keys = getTeamKeys(matchData?.match?.competitors?.[0] || {}).map((k: any) => String(k).toLowerCase());
+    const team2Keys = getTeamKeys(matchData?.match?.competitors?.[1] || {}).map((k: any) => String(k).toLowerCase());
+    // Helper to get all possible team keys from a player object
+    const getPlayerTeamKeys = (p: any) => [p.team, p.teamId, p.team_id, p.team_name, p.teamAbbreviation, p.team_abbreviation, p.teamName].filter(Boolean).map((k: any) => String(k).toLowerCase());
+    const team1Players = allPlayers.filter((p: any) => {
+      const playerTeamKeys = getPlayerTeamKeys(p);
+      return team1Keys.some(key => playerTeamKeys.includes(key));
+    });
+    const team2Players = allPlayers.filter((p: any) => {
+      const playerTeamKeys = getPlayerTeamKeys(p);
+      return team2Keys.some(key => playerTeamKeys.includes(key));
+    });
+
+    const handlePlayerSelection = (playerId: string) => {
+      setSelectedPlayers(prev => {
+        if (prev.includes(playerId)) {
+          return prev.filter(id => id !== playerId);
+        } else if (prev.length < 11) {
+          return [...prev, playerId];
+        }
+        return prev;
+      });
+    };
+
+    const totalCredits = selectedPlayers.length * 9; // Mock calculation
+
+    const [showCaptainSelection, setShowCaptainSelection] = useState(false);
+    const [captain, setCaptain] = useState<string | null>(null);
+    const [viceCaptain, setViceCaptain] = useState<string | null>(null);
+    const [combinations, setCombinations] = useState<Array<{ captain: string; viceCaptain: string; percentage?: number }>>([]);
+
+    // Helper to get player name by id
+    const getPlayerName = (id: string) => {
+      const player = allPlayers.find((p: any) => p.id === id);
+      return player ? player.name : id;
+    };
+
+    // Add combination handler
+    const handleAddCombination = () => {
+      if (captain && viceCaptain && captain !== viceCaptain) {
+        const totalPercentage = combinations.reduce((sum, combo) => sum + (combo.percentage || 0), 0);
+        if (totalPercentage > 100) {
+          alert('Total percentage cannot exceed 100.');
+          return;
+        }
+        setCombinations(prev => [...prev, { captain, viceCaptain }]);
+        setCaptain(null);
+        setViceCaptain(null);
+      }
+    };
+
+    return (
+      <div className="space-y-6">
+        {/* Players Selection */}
+        {!showCaptainSelection && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Available Players</CardTitle>
+              <CardDescription>Select 11 players from both teams to create your base XI</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Team 1 Players List */}
+                <div>
+                  <h4 className="font-semibold mb-3 flex items-center">
+                    <span className="w-3 h-3 bg-blue-500 rounded-full mr-2"></span>
+                    {matchData?.match?.competitors?.[0]?.name || 'Team 1'} ({team1Players.length})
+                  </h4>
+                  <div className="space-y-1 max-h-80 overflow-y-auto">
+                    {team1Players.map((player: any, index: number) => {
+                      const selPct = player.statistics?.selectionPercentage ? `${player.statistics.selectionPercentage}%` : '0%';
+                      const pts = player.statistics?.points || 0;
+                      return (
+                      <div key={player.id || index} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-gray-500">{index + 1}</span>
+                          <span className="text-sm font-medium">{player.name}</span>
+                        </div>
+                        <div className="flex items-center space-x-4">
+                          <span className="text-xs text-gray-500">{selPct}</span>
+                          <span className="text-xs text-gray-500">{pts}</span>
+                          <Button variant="outline" size="icon" onClick={() => handlePlayerSelection(player.id)}>
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>);
+                    })}
+                  </div>
+                </div>
+
+                {/* Team 2 Players List */}
+                <div>
+                  <h4 className="font-semibold mb-3 flex items-center">
+                    <span className="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+                    {matchData?.match?.competitors?.[1]?.name || 'Team 2'} ({team2Players.length})
+                  </h4>
+                  <div className="space-y-1 max-h-80 overflow-y-auto">
+                    {team2Players.map((player: any, index: number) => {
+                      const selPct = player.statistics?.selectionPercentage ? `${player.statistics.selectionPercentage}%` : '0%';
+                      const pts = player.statistics?.points || 0;
+                      return (
+                      <div key={player.id || index} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-gray-500">{index + 1}</span>
+                          <span className="text-sm font-medium">{player.name}</span>
+                        </div>
+                        <div className="flex items-center space-x-4">
+                          <span className="text-xs text-gray-500">{selPct}</span>
+                          <span className="text-xs text-gray-500">{pts}</span>
+                          <Button variant="outline" size="icon" onClick={() => handlePlayerSelection(player.id)}>
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>);
+                    })}
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Medium Priority</label>
-                <Input placeholder="e.g., Joe Root" />
+              
+              {/* Team Summary */}
+              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-sm font-medium">Selected Players: {selectedPlayers.length}/11</p>
+                    <p className="text-xs text-gray-500">Credits Used: {totalCredits}/100</p>
+                  </div>
+                  <Button 
+                    disabled={selectedPlayers.length !== 11}
+                    className="btn-primary"
+                    onClick={() => setShowCaptainSelection(true)}
+                  >
+                    Complete Selection
+                  </Button>
+                </div>
               </div>
-            </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Captain/Vice-Captain Selection */}
+        {showCaptainSelection && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Select Captain & Vice Captain</CardTitle>
+              <CardDescription>Choose a captain and vice captain from your selected XI</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Captain</label>
+                    <select
+                      className="w-full border border-gray-300 rounded-md px-3 py-2"
+                      value={captain || ''}
+                      onChange={e => setCaptain(e.target.value)}
+                    >
+                      <option value="" disabled>Select Captain</option>
+                      {selectedPlayers.map(pid => (
+                        <option key={pid} value={pid}>{getPlayerName(pid)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Vice Captain</label>
+                    <select
+                      className="w-full border border-gray-300 rounded-md px-3 py-2"
+                      value={viceCaptain || ''}
+                      onChange={e => setViceCaptain(e.target.value)}
+                    >
+                      <option value="" disabled>Select Vice Captain</option>
+                      {selectedPlayers
+                        .filter(pid => pid !== captain)
+                        .map(pid => (
+                          <option key={pid} value={pid}>{getPlayerName(pid)}</option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex flex-col md:flex-row justify-end gap-2 mt-4">
+                  <Button
+                    className="btn-secondary"
+                    disabled={!captain || !viceCaptain || captain === viceCaptain}
+                    onClick={handleAddCombination}
+                  >
+                    Add Combination
+                  </Button>
+                </div>
+                {/* Show saved combinations with percentage input */}
+                {combinations.length > 0 && (
+                  <div className="mt-6">
+                    <h4 className="font-medium mb-2">Saved Combinations</h4>
+                    <ul className="space-y-2">
+                      {combinations.map((combo, idx) => (
+                        <li key={idx} className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{getPlayerName(combo.captain)}</span>
+                            <span className="text-xs text-gray-500">(C)</span>
+                            <span className="mx-2">/</span>
+                            <span className="font-semibold">{getPlayerName(combo.viceCaptain)}</span>
+                            <span className="text-xs text-gray-500">(VC)</span>
+                          </div>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={100}
+                            placeholder="%"
+                            className="w-16"
+                            value={combo.percentage || ''}
+                            onChange={(e) => {
+                              const value = parseInt(e.target.value) || 0;
+                              setCombinations(prev => {
+                                const updated = prev.map((c, i) => i === idx ? { ...c, percentage: value } : c);
+                                const totalPercentage = updated.reduce((sum, c) => sum + (c.percentage || 0), 0);
+                                if (totalPercentage > 100) {
+                                  alert('Total percentage cannot exceed 100.');
+                                  return prev;
+                                }
+                                return updated;
+                              });
+                            }}
+                          />
+                          <span className="text-xs text-gray-500">%</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {/* Generate Teams Button */}
+                {combinations.length > 0 && combinations.every(combo => combo.percentage && combo.percentage > 0) && (
+                  <div className="mt-6 text-right">
+                    <Button
+                      className="btn-primary"
+                      onClick={() => {
+                        const totalTeams = parseInt(teamCount, 10);
+                        const generatedTeams: Array<{ captain: string; viceCaptain: string }> = [];
+
+                        combinations.forEach(combo => {
+                          if (combo.percentage) {
+                            const teamCountForCombo = Math.round((combo.percentage / 100) * totalTeams);
+                            for (let i = 0; i < teamCountForCombo; i++) {
+                              generatedTeams.push({
+                                captain: getPlayerName(combo.captain),
+                                viceCaptain: getPlayerName(combo.viceCaptain),
+                              });
+                            }
+                          }
+                        });
+
+                        // Shuffle the generated teams to randomize the order
+                        for (let i = generatedTeams.length - 1; i > 0; i--) {
+                          const j = Math.floor(Math.random() * (i + 1));
+                          [generatedTeams[i], generatedTeams[j]] = [generatedTeams[j], generatedTeams[i]];
+                        }
+
+                        setGeneratedTeams(generatedTeams);
+                      }}
+                    >
+                      Generate {teamCount} Teams
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {/* Generated Teams Display */}
+        {generatedTeams.length > 0 && (
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            {generatedTeams.map((team, index) => (
+              <div key={index} className="border border-gray-300 rounded-lg p-4">
+                <h4 className="font-medium mb-2">Team {index + 1}</h4>
+                <ul className="list-disc pl-5">
+                  {selectedPlayers.map(player => (
+                    <li key={player}>
+                      {getPlayerName(player)} {team.captain === getPlayerName(player) ? '(C)' : ''} {team.viceCaptain === getPlayerName(player) ? '(VC)' : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
-          
-          <Link href={`/match/${params.id}/teams?strategy=${params.strategyId}&teams=${teamCount}`}>
-            <Button className="w-full btn-primary">
-              Generate {teamCount} Teams
-            </Button>
-          </Link>
-        </div>
-      </CardContent>
-    </Card>
-  );
+        )}
+      </div>
+    );
+  };
 
   const renderScorePrediction = () => (
     <Card>
@@ -385,7 +632,7 @@ export default function StrategyPage({
             />
           </div>
           
-          <Link href={`/match/${params.id}/teams?strategy=${params.strategyId}&teams=${teamCount}`}>
+          <Link href={`/match/${resolvedParams.id}/teams?strategy=${resolvedParams.strategyId}&teams=${teamCount}`}>
             <Button className="w-full btn-primary">
               Generate {teamCount} Teams
             </Button>
@@ -399,7 +646,7 @@ export default function StrategyPage({
     return <div>Strategy not found</div>;
   }
 
-  const IconComponent = strategy.icon;
+  const IconComponent = strategy?.icon || (() => null);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -408,7 +655,7 @@ export default function StrategyPage({
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <Link href={`/match/${params.id}`}>
+              <Link href={`/match/${resolvedParams.id}`}>
                 <Button variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-black">
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Back
@@ -431,14 +678,14 @@ export default function StrategyPage({
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
-        {params.strategyId === 'ai-chatbot' && renderAIChatbot()}
-        {params.strategyId === 'same-xi' && renderSameXI()}
-        {params.strategyId === 'score-prediction' && renderScorePrediction()}
-        {params.strategyId === 'core-hedge' && renderSameXI()}
-        {params.strategyId === 'stats-driven' && renderScorePrediction()}
-        {params.strategyId === 'preset-scenarios' && renderSameXI()}
-        {params.strategyId === 'role-split' && renderScorePrediction()}
-        {params.strategyId === 'base-team' && renderSameXI()}
+        {resolvedParams.strategyId === 'ai-chatbot' && renderAIChatbot()}
+        {resolvedParams.strategyId === 'same-xi' && renderSameXI()}
+        {resolvedParams.strategyId === 'score-prediction' && renderScorePrediction()}
+        {resolvedParams.strategyId === 'core-hedge' && renderSameXI()}
+        {resolvedParams.strategyId === 'stats-driven' && renderScorePrediction()}
+        {resolvedParams.strategyId === 'preset-scenarios' && renderSameXI()}
+        {resolvedParams.strategyId === 'role-split' && renderScorePrediction()}
+        {resolvedParams.strategyId === 'base-team' && renderSameXI()}
       </main>
     </div>
   );

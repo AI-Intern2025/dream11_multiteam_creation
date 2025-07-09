@@ -118,7 +118,14 @@ export default function TeamsPage() {
           <div className="text-center py-12">
             <div className="text-red-500 text-lg">Error generating teams</div>
             <p className="text-gray-400 mt-2">{error}</p>
-            <Button onClick={handleGenerateTeams} className="mt-4">
+            <Button
+              onClick={async () => {
+                setHasGenerated(false);
+                await generateTeams(matchId, 'strategy1', teamsParam || 10, {});
+                setHasGenerated(true);
+              }}
+              className="mt-4"
+            >
               Try Again
             </Button>
           </div>
