@@ -51,7 +51,7 @@ export default function Home() {
     router.push('/login');
   };
 
-  const filteredMatches = matches.filter(match => {
+  const filteredMatches = matches.filter((match: any) => {
     if (!match) return false;
     const matchesSearch = (match.teams || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                          (match.venue || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -202,7 +202,7 @@ export default function Home() {
         {/* Matches Grid */}
         {!loading && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredMatches.map((match) => (
+          {filteredMatches.map((match: any) => (
             <Card key={match.id} className="card-hover group">
               <CardHeader>
                 <div className="flex items-center justify-between">

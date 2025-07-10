@@ -21,8 +21,8 @@ export default function MatchDetail() {
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
         <div className="text-center">
           <RefreshCw className="h-8 w-8 text-gray-400 mx-auto mb-4 animate-spin" />
-          <div className="text-gray-500 text-lg">Loading match data...</div>
-          <p className="text-gray-400 mt-2">Analyzing conditions and player form</p>
+          <div className="text-gray-500 text-lg">Loading match details...</div>
+          <p className="text-gray-400 mt-2">Please wait while match details are retrieved</p>
         </div>
       </div>
     );
@@ -43,8 +43,13 @@ export default function MatchDetail() {
   }
 
   const match = matchData.match;
-  const analysis = matchData.analysis;
-  const weather = matchData.weather;
+  // Neon DB fields mapping
+  const rawMatch = match;
+  const displayDate = new Date(rawMatch.match_date).toLocaleDateString();
+  const displayTime = rawMatch.start_time;
+  const venue = rawMatch.match_venue;
+  const format = rawMatch.match_format;
+  const weatherDesc = rawMatch.weather_condition;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -60,12 +65,12 @@ export default function MatchDetail() {
                 </Button>
               </Link>
               <div>
-                <h1 className="text-3xl font-bold">{match.name || match.teams}</h1>
+                <h1 className="text-3xl font-bold">{rawMatch.team_name}</h1>
                 <p className="text-gray-300">AI-powered team creation with live data</p>
               </div>
             </div>
             <Badge variant="secondary" className="text-lg px-4 py-2">
-              {match.format || 'T20'}
+              {format || 'T20'}
             </Badge>
           </div>
         </div>
@@ -85,80 +90,31 @@ export default function MatchDetail() {
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="flex items-center space-x-2">
                 <Calendar className="h-4 w-4 text-gray-500" />
-                <span className="text-sm">{new Date(match.dateTimeGMT || Date.now()).toLocaleDateString()}</span>
+                <span className="text-sm">{displayDate}</span>
               </div>
               <div className="flex items-center space-x-2">
                 <Clock className="h-4 w-4 text-gray-500" />
-                <span className="text-sm">{new Date(match.dateTimeGMT || Date.now()).toLocaleTimeString()}</span>
+                <span className="text-sm">{displayTime}</span>
               </div>
               <div className="flex items-center space-x-2">
                 <MapPin className="h-4 w-4 text-gray-500" />
-                <span className="text-sm">{match.venue?.name || match.venue || 'TBD'}</span>
+                <span className="text-sm">{venue || 'TBD'}</span>
               </div>
               <div className="flex items-center space-x-2">
                 <Users className="h-4 w-4 text-gray-500" />
                 <span className="text-sm">0 Teams Created</span>
               </div>
-              {weather && (
+              {rawMatch.weather_condition && (
                 <div className="flex items-center space-x-2">
                   <Cloud className="h-4 w-4 text-gray-500" />
-                  <span className="text-sm">{weather.weather?.[0]?.description}</span>
-                  <Thermometer className="h-3 w-3 text-gray-500" />
-                  <span className="text-sm">{Math.round(weather.main?.temp)}°C</span>
+                  <span className="text-sm">{weatherDesc || 'N/A'}</span>
                 </div>
               )}
             </div>
           </CardContent>
         </Card>
 
-        {/* AI Analysis Card */}
-        {analysis && (
-          <Card className="mb-8 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span>AI Match Analysis</span>
-              </CardTitle>
-              <CardDescription>Live insights powered by OpenAI and CricAPI</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white p-4 rounded-lg">
-                  <h4 className="font-semibold text-sm text-gray-700 mb-2">Match Prediction</h4>
-                  <p className="text-lg font-bold text-blue-600">{analysis.matchPrediction?.winnerPrediction}</p>
-                  <p className="text-xs text-gray-500">{analysis.matchPrediction?.confidence}% confidence</p>
-                </div>
-                <div className="bg-white p-4 rounded-lg">
-                  <h4 className="font-semibold text-sm text-gray-700 mb-2">Match Type</h4>
-                  <p className="text-lg font-bold text-green-600 capitalize">{analysis.matchPrediction?.matchType}</p>
-                  <p className="text-xs text-gray-500">Expected scoring pattern</p>
-                </div>
-                <div className="bg-white p-4 rounded-lg">
-                  <h4 className="font-semibold text-sm text-gray-700 mb-2">Top Captain Pick</h4>
-                  <p className="text-lg font-bold text-purple-600">{analysis.captaincy?.primary?.name}</p>
-                  <p className="text-xs text-gray-500">{analysis.captaincy?.primary?.reason}</p>
-                </div>
-              </div>
-              
-              {analysis.conditions && (
-                <div className="mt-4 p-4 bg-white rounded-lg">
-                  <h4 className="font-semibold text-sm text-gray-700 mb-2">Conditions Analysis</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <strong>Pitch:</strong> {analysis.conditions.pitchAnalysis}
-                    </div>
-                    <div>
-                      <strong>Weather:</strong> {analysis.conditions.weatherImpact}
-                    </div>
-                    <div>
-                      <strong>Venue:</strong> {analysis.conditions.venueHistory}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+        {/* AI Analysis appears when a strategy is selected, not on initial load */}
 
         {/* Team Count Selection */}
         <Card className="mb-8">
@@ -202,7 +158,7 @@ export default function MatchDetail() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {[
                 {
-                  id: 'ai-chatbot',
+                  id: 'ai-guided',
                   title: 'AI-Guided Assistant',
                   description: 'Interactive AI chatbot with live match insights and personalized recommendations',
                   icon: '🤖',
@@ -216,7 +172,7 @@ export default function MatchDetail() {
                   color: 'bg-purple-50 border-purple-200'
                 },
                 {
-                  id: 'score-prediction',
+                  id: 'differential',
                   title: 'Score & Storyline Prediction',
                   description: 'Teams based on AI match predictions and expected storylines',
                   icon: '📊',
@@ -251,14 +207,14 @@ export default function MatchDetail() {
                   color: 'bg-indigo-50 border-indigo-200'
                 },
                 {
-                  id: 'base-team',
+                  id: 'base-edit',
                   title: 'Base Team + Rule-Based Edits',
                   description: 'AI-generated base team with intelligent rule-based variations',
                   icon: '🔧',
                   color: 'bg-teal-50 border-teal-200'
                 }
               ].map((strategy) => (
-                <Link key={strategy.id} href={`/match/${matchId}/strategy/${strategy.id}?teams=${teamCount}`}>
+                <Link key={strategy.id} href={`/match/${matchId}/teams?strategy=${strategy.id}&teams=${teamCount}`}>
                   <Card className={`card-hover cursor-pointer ${strategy.color} border-2 hover:shadow-lg`}>
                     <CardContent className="p-6">
                       <div className="text-center">

@@ -17,6 +17,13 @@ export interface TeamGenerationRequest {
     avoidPlayers?: string[];
     riskProfile?: 'conservative' | 'balanced' | 'aggressive';
     budget?: number;
+    // For same-xi strategy
+    players?: any[];
+    combos?: Array<{
+      captain: string;
+      viceCaptain: string;
+      percentage: number;
+    }>;
   };
 }
 
@@ -253,6 +260,11 @@ class AIService {
 
   async generateTeamsWithAIStrategy(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
     try {
+      // Handle same-xi strategy specially
+      if (request.strategy === 'same-xi' && request.userPreferences?.players && request.userPreferences?.combos) {
+        return this.generateSameXITeams(request);
+      }
+
       const recommendations = await this.generateAIPlayerRecommendations(request.matchId);
       const teams: AITeamAnalysis[] = [];
 
@@ -398,6 +410,73 @@ class AIService {
       confidence,
       reasoning: this.generateTeamReasoning(recommendations.filter(r => selectedPlayers.includes(r.player)), request.strategy)
     };
+  }
+
+  private async generateSameXITeams(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
+    const { players, combos } = request.userPreferences!;
+    const teams: AITeamAnalysis[] = [];
+    
+    if (!players || !combos || players.length !== 11) {
+      throw new Error('Invalid same-xi data: need exactly 11 players and valid combos');
+    }
+
+    // Calculate how many teams for each combination based on percentage
+    const teamCounts = combos.map(combo => {
+      return {
+        ...combo,
+        count: Math.round((combo.percentage / 100) * request.teamCount)
+      };
+    });
+
+    // Generate teams for each combination
+    let teamIndex = 1;
+    for (const comboData of teamCounts) {
+      for (let i = 0; i < comboData.count; i++) {
+        // Find captain and vice-captain from the selected players
+        const captain = players.find(p => p.name === comboData.captain);
+        const viceCaptain = players.find(p => p.name === comboData.viceCaptain);
+        
+        if (!captain || !viceCaptain) {
+          console.warn(`Could not find captain (${comboData.captain}) or vice-captain (${comboData.viceCaptain}) in selected players`);
+          continue;
+        }
+
+        // Calculate team metrics
+        const totalCredits = players.reduce((sum: number, p: any) => sum + (p.credits || 9), 0);
+        const roleBalance = this.calculateRoleBalance(players);
+        const riskScore = this.calculateRiskScore(players);
+        const expectedPoints = this.calculateExpectedPoints(players, captain, viceCaptain);
+        const confidence = 85; // Fixed confidence for user-selected teams
+
+        teams.push({
+          players: [...players], // Create a copy
+          captain,
+          viceCaptain,
+          totalCredits,
+          roleBalance,
+          riskScore,
+          expectedPoints,
+          confidence,
+          reasoning: `Same XI strategy: Team ${teamIndex} with ${captain.name} (C) and ${viceCaptain.name} (VC)`
+        });
+
+        teamIndex++;
+      }
+    }
+
+    return teams;
+  }
+
+  private calculateRoleBalance(players: any[]): { batsmen: number; bowlers: number; allRounders: number; wicketKeepers: number } {
+    return players.reduce((balance, player) => {
+      switch (player.player_role) {
+        case 'BAT': balance.batsmen++; break;
+        case 'BWL': balance.bowlers++; break;
+        case 'AR': balance.allRounders++; break;
+        case 'WK': balance.wicketKeepers++; break;
+      }
+      return balance;
+    }, { batsmen: 0, bowlers: 0, allRounders: 0, wicketKeepers: 0 });
   }
 
   private calculateRiskScore(players: Player[]): number {

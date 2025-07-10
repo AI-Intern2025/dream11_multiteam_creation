@@ -5,11 +5,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Download, Search, Users, Trophy, TrendingUp, Target, BarChart3, Eye, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowLeft, Download, Search, Users, Trophy, TrendingUp, Target, BarChart3, Eye, RefreshCw, Sparkles, Edit } from 'lucide-react';
 import Link from 'next/link';
 import { useTeamGeneration, useMatchData, useChatbot } from '@/hooks/use-cricket-data';
 import { useParams, useSearchParams } from 'next/navigation';
+import Strategy1Wizard from '@/components/strategies/Strategy1Wizard';
+import Strategy2Wizard from '@/components/strategies/Strategy2Wizard';
+import Strategy3Wizard from '@/components/strategies/Strategy3Wizard';
+import Strategy4Wizard from '@/components/strategies/Strategy4Wizard';
+import Strategy5Wizard from '@/components/strategies/Strategy5Wizard';
+import Strategy6Wizard from '@/components/strategies/Strategy6Wizard';
+import Strategy7Wizard from '@/components/strategies/Strategy7Wizard';
+import Strategy8Wizard from '@/components/strategies/Strategy8Wizard';
+import { getStrategyComponent } from '@/components/strategies';
 
 export default function TeamsPage() {
   const params = useParams();
@@ -27,19 +38,192 @@ export default function TeamsPage() {
     teams,
     loading,
     error,
-    generateTeams
+    generateTeams,
+    updateTeams
   } = useTeamGeneration();
   const { data: matchData } = useMatchData(matchId);
 
   // Handler to trigger team generation from wizard
   const onGenerate = async (userPreferences: any, teamCount: number) => {
     setHasGenerated(false);
-    await generateTeams(matchId, 'strategy1', teamCount, userPreferences);
+    const strategyName = userPreferences?.strategy || strategy || 'strategy1';
+    await generateTeams(matchId, strategyName, teamCount, userPreferences);
     setHasGenerated(true);
   };
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTeam, setSelectedTeam] = useState<number | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
+  const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [bulkEditFrom, setBulkEditFrom] = useState('');
+  const [bulkEditTo, setBulkEditTo] = useState('');
+  const [allPlayers, setAllPlayers] = useState<any[]>([]);
+  const [selectedPlayers, setSelectedPlayers] = useState<any[]>([]);
+
+  // CSV Export Function
+  const exportToCSV = () => {
+    if (teams.length === 0) {
+      alert('No teams to export');
+      return;
+    }
+
+    const csvContent = teams.map((team, index) => {
+      const players = team.players || [];
+      const captain = team.captain?.name || team.captain || team.captainName || '';
+      const viceCaptain = team.viceCaptain?.name || team.viceCaptain || team.viceCaptainName || '';
+      
+      return [
+        `Team ${index + 1}`,
+        captain,
+        viceCaptain,
+        ...players.map((p: any) => p.name || p).slice(0, 11),
+        team.totalCredits || 100,
+        team.confidence || 75
+      ].join(',');
+    }).join('\n');
+
+    const header = 'Team Name,Captain,Vice Captain,Player1,Player2,Player3,Player4,Player5,Player6,Player7,Player8,Player9,Player10,Player11,Credits,Confidence\n';
+    const finalContent = header + csvContent;
+
+    const blob = new Blob([finalContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `fantasy_teams_${matchId}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Fetch all available players for bulk edit
+  useEffect(() => {
+    const fetchAllPlayers = async () => {
+      if (matchData?.match?.id) {
+        try {
+          const matchName = matchData.match.team_name as string;
+          const [team1Name, team2Name] = matchName.split(' vs ');
+          
+          const res1 = await fetch(`/api/players?matchId=${matchData.match.id}&teamName=${encodeURIComponent(team1Name)}&onlyActive=true`);
+          const { data: d1 } = await res1.json();
+          const res2 = await fetch(`/api/players?matchId=${matchData.match.id}&teamName=${encodeURIComponent(team2Name)}&onlyActive=true`);
+          const { data: d2 } = await res2.json();
+          
+          setAllPlayers([...(d1 || []), ...(d2 || [])]);
+        } catch (error) {
+          console.error('Error fetching players:', error);
+        }
+      }
+    };
+    
+    fetchAllPlayers();
+  }, [matchData]);
+
+  // Extract selected players from generated teams
+  useEffect(() => {
+    if (teams.length > 0) {
+      const allSelectedPlayers = new Set<string>();
+      teams.forEach(team => {
+        team.players?.forEach((player: any) => {
+          const playerName = player.name || player;
+          allSelectedPlayers.add(playerName);
+        });
+        // Also add captain and vice-captain
+        const captainName = team.captain?.name || team.captain;
+        const viceCaptainName = team.viceCaptain?.name || team.viceCaptain;
+        if (captainName) allSelectedPlayers.add(captainName);
+        if (viceCaptainName) allSelectedPlayers.add(viceCaptainName);
+      });
+      
+      // Convert to array and find player objects
+      const selectedPlayersList = Array.from(allSelectedPlayers).map(playerName => {
+        const playerObj = allPlayers.find(p => (p.name || p) === playerName);
+        return playerObj || { name: playerName };
+      });
+      
+      setSelectedPlayers(selectedPlayersList);
+    }
+  }, [teams, allPlayers]);
+
+  // Bulk Edit Functions
+  const handleTeamSelection = (teamId: string) => {
+    setSelectedTeams(prev => 
+      prev.includes(teamId) 
+        ? prev.filter(id => id !== teamId)
+        : [...prev, teamId]
+    );
+  };
+
+  const handleSelectAllTeams = () => {
+    setSelectedTeams(teams.map(team => team.id));
+  };
+
+  const handleDeselectAllTeams = () => {
+    setSelectedTeams([]);
+  };
+
+  const applyBulkEdit = () => {
+    if (!bulkEditFrom || !bulkEditTo || selectedTeams.length === 0) {
+      alert('Please select teams and players for bulk edit');
+      return;
+    }
+
+    if (bulkEditFrom === bulkEditTo) {
+      alert('Please select different players for swap');
+      return;
+    }
+
+    // Apply bulk edit logic - swap players in selected teams
+    const updatedTeams = teams.map(team => {
+      if (selectedTeams.includes(team.id)) {
+        const updatedPlayers = team.players?.map((player: any) => {
+          const playerName = player.name || player;
+          if (playerName === bulkEditFrom) {
+            return typeof player === 'string' ? bulkEditTo : { ...player, name: bulkEditTo };
+          } else if (playerName === bulkEditTo) {
+            return typeof player === 'string' ? bulkEditFrom : { ...player, name: bulkEditFrom };
+          }
+          return player;
+        }) || [];
+
+        // Also update captain and vice-captain if they were swapped
+        let updatedCaptain = team.captain;
+        let updatedViceCaptain = team.viceCaptain;
+        
+        const captainName = team.captain?.name || team.captain;
+        const viceCaptainName = team.viceCaptain?.name || team.viceCaptain;
+        
+        if (captainName === bulkEditFrom) {
+          updatedCaptain = typeof team.captain === 'string' ? bulkEditTo : { ...team.captain, name: bulkEditTo };
+        } else if (captainName === bulkEditTo) {
+          updatedCaptain = typeof team.captain === 'string' ? bulkEditFrom : { ...team.captain, name: bulkEditFrom };
+        }
+        
+        if (viceCaptainName === bulkEditFrom) {
+          updatedViceCaptain = typeof team.viceCaptain === 'string' ? bulkEditTo : { ...team.viceCaptain, name: bulkEditTo };
+        } else if (viceCaptainName === bulkEditTo) {
+          updatedViceCaptain = typeof team.viceCaptain === 'string' ? bulkEditFrom : { ...team.viceCaptain, name: bulkEditFrom };
+        }
+
+        return {
+          ...team,
+          players: updatedPlayers,
+          captain: updatedCaptain,
+          viceCaptain: updatedViceCaptain
+        };
+      }
+      return team;
+    });
+
+    // Actually update the teams state
+    updateTeams(updatedTeams);
+    
+    alert(`Successfully swapped ${bulkEditFrom} with ${bulkEditTo} in ${selectedTeams.length} teams`);
+    setShowBulkEdit(false);
+    setBulkEditFrom('');
+    setBulkEditTo('');
+    setSelectedTeams([]);
+  };
 
   // Skip auto-generate; strategy is managed via wizard
 
@@ -66,11 +250,54 @@ export default function TeamsPage() {
     }
   }, [teams]);
 
-  // If no teams generated yet, show AI chatbot wizard
+  // If no teams generated yet, show appropriate strategy wizard
   if (!hasGenerated) {
-    return (
-      <Strategy1Wizard matchId={matchId} onGenerate={onGenerate} />
-    );
+    // Strategy routing logic
+    switch (strategy) {
+      case 'ai-guided':
+      case 'strategy1':
+      case 'ai-assistant':
+        return <Strategy1Wizard matchId={matchId} onGenerate={onGenerate} />;
+      
+      case 'same-xi':
+      case 'strategy2':
+      case 'captain-rotation':
+        return <Strategy2Wizard matchId={matchId} onGenerate={onGenerate} />;
+      
+      case 'differential':
+      case 'strategy3':
+      case 'score-prediction':
+        return <Strategy3Wizard matchId={matchId} onGenerate={onGenerate} />;
+      
+      case 'core-hedge':
+      case 'strategy4':
+      case 'core-differential':
+        return <Strategy4Wizard matchId={matchId} onGenerate={onGenerate} />;
+      
+      case 'stats-driven':
+      case 'strategy5':
+      case 'analytics-based':
+        return <Strategy5Wizard matchId={matchId} onGenerate={onGenerate} />;
+      
+      case 'preset-scenarios':
+      case 'strategy6':
+      case 'templates':
+        return <Strategy6Wizard matchId={matchId} onGenerate={onGenerate} />;
+      
+      case 'role-split':
+      case 'strategy7':
+      case 'lineup-optimization':
+        return <Strategy7Wizard matchId={matchId} onGenerate={onGenerate} />;
+      
+      case 'base-edit':
+      case 'strategy8':
+      case 'iterative-editing':
+        return <Strategy8Wizard matchId={matchId} onGenerate={onGenerate} />;
+      
+      default:
+        // Default to AI-guided assistant for any unrecognized strategy
+        return <Strategy1Wizard matchId={matchId} onGenerate={onGenerate} />;
+    }
   }
 
   return (
@@ -94,10 +321,23 @@ export default function TeamsPage() {
                 </p>
               </div>
             </div>
-            <Button className="bg-red-600 hover:bg-red-700">
-              <Download className="mr-2 h-4 w-4" />
-              Export CSV
-            </Button>
+            <div className="flex items-center space-x-2">
+              <Button 
+                onClick={exportToCSV}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Export CSV
+              </Button>
+              <Button 
+                onClick={() => setShowBulkEdit(!showBulkEdit)}
+                variant="outline" 
+                className="bg-transparent border-white text-white hover:bg-white hover:text-black"
+              >
+                <Edit className="mr-2 h-4 w-4" />
+                Bulk Edit
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -129,6 +369,86 @@ export default function TeamsPage() {
               Try Again
             </Button>
           </div>
+        )}
+
+        {/* Bulk Edit Panel */}
+        {showBulkEdit && (
+          <Card className="mb-6 border-blue-200 bg-blue-50">
+            <CardHeader>
+              <CardTitle className="text-blue-800">Bulk Edit Teams</CardTitle>
+              <CardDescription>Select teams and swap players across multiple teams at once</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center space-x-4">
+                  <div className="text-sm font-medium">Selected: {selectedTeams.length} teams</div>
+                  <Button 
+                    onClick={handleSelectAllTeams} 
+                    variant="outline" 
+                    size="sm"
+                  >
+                    Select All
+                  </Button>
+                  <Button 
+                    onClick={handleDeselectAllTeams} 
+                    variant="outline" 
+                    size="sm"
+                  >
+                    Deselect All
+                  </Button>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Replace Player (from selected teams):</label>
+                    <Select value={bulkEditFrom} onValueChange={setBulkEditFrom}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select player to replace" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {selectedPlayers.map((player, index) => (
+                          <SelectItem key={index} value={player.name || player}>
+                            {player.name || player}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">With Player (from all available):</label>
+                    <Select value={bulkEditTo} onValueChange={setBulkEditTo}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select replacement player" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allPlayers.map((player, index) => (
+                          <SelectItem key={index} value={player.name || player}>
+                            {player.name || player}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <Button 
+                    onClick={applyBulkEdit}
+                    disabled={!bulkEditFrom || !bulkEditTo || selectedTeams.length === 0}
+                  >
+                    Apply Changes
+                  </Button>
+                  <Button 
+                    onClick={() => setShowBulkEdit(false)}
+                    variant="outline"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         <Tabs defaultValue="teams" className="w-full">
@@ -184,7 +504,15 @@ export default function TeamsPage() {
                 <Card key={team.id || Math.random()} className="card-hover">
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{team.name || team.teamName || `Team ${team.id || 'Unknown'}`}</CardTitle>
+                      <div className="flex items-center space-x-2">
+                        {showBulkEdit && (
+                          <Checkbox
+                            checked={selectedTeams.includes(team.id)}
+                            onCheckedChange={() => handleTeamSelection(team.id)}
+                          />
+                        )}
+                        <CardTitle className="text-lg">{team.name || team.teamName || `Team ${team.id || 'Unknown'}`}</CardTitle>
+                      </div>
                       <div className="flex items-center space-x-2">
                         <Badge variant="secondary">{team.strategy || 'AI Generated'}</Badge>
                         <Badge variant="outline" className={
@@ -233,10 +561,7 @@ export default function TeamsPage() {
                           className="flex-1"
                         >
                           <Eye className="mr-2 h-4 w-4" />
-                          View
-                        </Button>
-                        <Button variant="outline" size="sm" className="flex-1">
-                          Edit
+                          View Details
                         </Button>
                       </div>
                     </div>
@@ -269,22 +594,30 @@ export default function TeamsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {teams.find(t => t.id === selectedTeam)?.players?.map((player: any, index: number) => (
-                          <tr key={index} className="border-b">
-                            <td className="p-2 font-medium">{
-                              player?.name || `Player ${index + 1}`
-                            }</td>
-                            <td className="p-2">{
-                              player?.player_role || player?.role || 'Unknown'
-                            }</td>
-                            <td className="p-2 text-sm">{
-                              player?.reason || 'AI recommended'
-                            }</td>
-                            <td className="p-2">{
-                              player?.confidence || 75
-                            }%</td>
-                          </tr>
-                        ))}
+                        {teams.find(t => t.id === selectedTeam)?.players?.map((player: any, index: number) => {
+                          const selectedTeamData = teams.find(t => t.id === selectedTeam);
+                          const isCaptain = selectedTeamData?.captain?.name === player.name || selectedTeamData?.captain === player.name;
+                          const isViceCaptain = selectedTeamData?.viceCaptain?.name === player.name || selectedTeamData?.viceCaptain === player.name;
+                          
+                          return (
+                            <tr key={index} className="border-b">
+                              <td className="p-2 font-medium">
+                                {player?.name || `Player ${index + 1}`}
+                                {isCaptain && <span className="ml-2 text-sm bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full font-bold">(C)</span>}
+                                {isViceCaptain && <span className="ml-2 text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-bold">(VC)</span>}
+                              </td>
+                              <td className="p-2">{
+                                player?.player_role || player?.role || 'Unknown'
+                              }</td>
+                              <td className="p-2 text-sm">{
+                                player?.reason || 'AI recommended'
+                              }</td>
+                              <td className="p-2">{
+                                player?.confidence || 75
+                              }%</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -472,108 +805,6 @@ export default function TeamsPage() {
           </TabsContent>
         </Tabs>
       </main>
-    </div>
-  );
-}
-
-// Strategy 1: AI-Guided Chatbot Wizard
-function Strategy1Wizard({ matchId, onGenerate }: { matchId: string; onGenerate: (prefs: any, count: number) => void }) {
-  const [selectedPills, setSelectedPills] = useState<string[]>([]);
-  const [customInput, setCustomInput] = useState('');
-  const [messages, setMessages] = useState<{ sender: 'user' | 'ai'; text: string }[]>([]);
-  const { sendMessage, loading: chatbotLoading, error: chatbotError } = useChatbot();
-  const [teamCount, setTeamCount] = useState(10);
-  const [stage, setStage] = useState<'pills' | 'analysis' | 'distribution'>('pills');
-  const pillOptions = ['Balance Bat/Bowl', 'Aggressive Batting', 'All-round Strength', 'Pitch-friendly Picks', 'Weather-proof Picks'];
-  // Fetch match analysis for default captaincy options
-  const { data: matchData } = useMatchData(matchId);
-  const capAnalysis = matchData?.analysis?.captaincy;
-  const defaultCombos = capAnalysis ? [
-    { captain: capAnalysis.primary.name, viceCaptain: capAnalysis.secondary.name, percentage: 50 },
-    { captain: capAnalysis.secondary.name, viceCaptain: capAnalysis.primary.name, percentage: 50 }
-  ] : [];
-  const [combos, setCombos] = useState<{ captain: string; viceCaptain: string; percentage: number }[]>(defaultCombos);
-
-  const handlePillClick = (pill: string) => {
-    if (!selectedPills.includes(pill)) setSelectedPills([...selectedPills, pill]);
-  };
-  const handleRemovePill = (pill: string) => setSelectedPills(selectedPills.filter(p => p !== pill));
-  const handleAddCustom = () => {
-    if (customInput) {
-      setSelectedPills([...selectedPills, customInput]);
-      setCustomInput('');
-    }
-  };
-
-  const handleAnalyze = async () => {
-    const userMsg = `Preferences: ${selectedPills.join(', ')}.`;
-    setMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
-    const aiResp = await sendMessage(userMsg, matchId, null);
-    setMessages(prev => [...prev, { sender: 'ai', text: aiResp }]);
-    setStage('distribution');
-  };
-
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <h2 className="text-2xl font-bold mb-4">AI-Guided Team Creation Assistant</h2>
-      <p className="mb-2">Select preferences or add your own:</p>
-      <div className="flex flex-wrap gap-2 mb-4">
-        {pillOptions.map(p => (
-          <Button key={p} variant={selectedPills.includes(p) ? 'secondary' : 'outline'} onClick={() => handlePillClick(p)}>
-            {p}
-          </Button>
-        ))}
-      </div>
-      <div className="flex items-center gap-2 mb-4">
-        <Input placeholder="Custom preference" value={customInput} onChange={e => setCustomInput(e.target.value)} className="flex-1" />
-        <Button onClick={handleAddCustom}>Add</Button>
-      </div>
-      <div className="mb-4">
-        {selectedPills.map(p => (
-          <Badge key={p} className="mr-2 cursor-pointer" onClick={() => handleRemovePill(p)}>
-            {p} ×
-          </Badge>
-        ))}
-      </div>
-      <div className="mb-4">
-        <label className="block mb-1">Number of Teams:</label>
-        <Input type="number" min={1} max={20} value={teamCount} onChange={e => setTeamCount(parseInt(e.target.value) || 1)} />
-      </div>
-      {stage === 'pills' && (
-        <Button onClick={handleAnalyze} disabled={chatbotLoading} className="mb-4">
-          {chatbotLoading ? 'Analyzing...' : 'Get Recommendations'}
-        </Button>
-      )}
-      {chatbotError && <div className="text-red-500 mb-2">{chatbotError}</div>}
-      {stage === 'analysis' || stage === 'distribution' ? (
-       <div className="bg-gray-100 p-4 rounded space-y-2 h-64 overflow-y-auto">
-         {messages.map((m, i) => (
-           <div key={i} className={m.sender === 'user' ? 'text-right' : 'text-left'}>
-             <span className={`inline-block p-2 rounded ${m.sender === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}>{m.text}</span>
-           </div>
-         ))}
-       </div>
-      ) : null}
-      {stage === 'distribution' && combos.length > 0 && (
-        <div className="mt-4 bg-white p-4 rounded shadow">
-          <h3 className="font-semibold mb-2">Captain/Vice-Captain Distribution:</h3>
-          {combos.map((c, idx) => (
-            <div key={idx} className="flex items-center mb-2">
-              <span className="mr-2">C: {c.captain}, VC: {c.viceCaptain}</span>
-              <Input type="number" min={0} max={100} value={c.percentage}
-                onChange={e => {
-                  const val = parseInt(e.target.value) || 0;
-                  setCombos(prev => prev.map((item, i) => i === idx ? { ...item, percentage: val } : item));
-                }}
-                className="w-16 mr-2" />
-              %
-            </div>
-          ))}
-          <Button onClick={() => onGenerate({ aiPrompt: messages.find(m => m.sender==='ai')?.text, distribution: combos }, teamCount)}>
-            Finalize Teams
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

@@ -105,7 +105,11 @@ export function useTeamGeneration() {
     }
   };
 
-  return { teams, loading, error, generateTeams };
+  const updateTeams = (newTeams: any[]) => {
+    setTeams(newTeams);
+  };
+
+  return { teams, loading, error, generateTeams, updateTeams };
 }
 
 export function useChatbot() {

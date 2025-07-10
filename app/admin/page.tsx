@@ -148,7 +148,7 @@ export default function AdminDashboard() {
                   <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
                     <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-lg font-semibold mb-2">Upload Dream11 Lineup Screenshot</h3>
-                    <p className="text-gray-500 mb-4">Upload the "Create Team" page showing all players, credits, and roles</p>
+                    <p className="text-gray-500 mb-4">Upload the &quot;Create Team&quot; page showing all players, credits, and roles</p>
                     <Button className="btn-primary">
                       Choose Screenshot
                     </Button>

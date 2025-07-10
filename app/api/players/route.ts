@@ -4,7 +4,8 @@ import { neonDB } from '@/lib/neon-db';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const matchId = searchParams.get('matchId');
+    const matchIdRaw = searchParams.get('matchId');
+    const matchId = matchIdRaw ? parseInt(matchIdRaw, 10) : null;
     const teamName = searchParams.get('teamName');
     const role = searchParams.get('role');
     const onlyActive = searchParams.get('onlyActive') === 'true';
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
     let paramIndex = 1;
 
     // Filter by match (get players from teams in that match)
-    if (matchId) {
+    if (matchId !== null) {
       query += ` AND EXISTS (
         SELECT 1 FROM matches 
         WHERE id = $${paramIndex} 

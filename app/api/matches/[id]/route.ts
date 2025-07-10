@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dataIntegrationService } from '@/lib/data-integration';
+import { neonDB } from '@/lib/neon-db';
 
 export async function GET(
   request: NextRequest,
-  // Unwrap params promise for Next.js route handler
-  { params }: { params: { id: string } | Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: matchId } = await params;
 
@@ -17,6 +17,21 @@ export async function GET(
       },
       { status: 400 }
     );
+  }
+
+  // Attempt to fetch match details from Neon DB
+  try {
+    const neonMatch = await neonDB.getMatchById(parseInt(matchId, 10));
+    if (neonMatch) {
+      return NextResponse.json({
+        success: true,
+        data: { match: neonMatch },
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (dbError) {
+    console.error('Error fetching from Neon DB:', dbError);
+    // continue to fallback dataIntegrationService
   }
 
   console.log(`🔍 Fetching match data for ID: ${matchId}`);
