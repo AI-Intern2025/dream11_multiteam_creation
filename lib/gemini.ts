@@ -16,6 +16,17 @@ class GeminiService {
     this.model = this.genAI.getGenerativeModel({ model: "gemini-pro" });
   }
 
+  async generateSimpleResponse(prompt: string): Promise<string> {
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      return response.text() || '';
+    } catch (error) {
+      console.error('Gemini simple response failed:', error);
+      throw error;
+    }
+  }
+
   async analyzeMatchData(
     matchData: SportRadarMatch,
     playerStats: SportRadarPlayer[],

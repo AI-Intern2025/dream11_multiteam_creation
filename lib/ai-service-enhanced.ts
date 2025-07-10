@@ -5,7 +5,7 @@ import { SportRadarMatch, SportRadarPlayer } from './sportradar';
 import { MatchAnalysis } from './openai';
 
 // Import Dream11 validation from data-integration
-import { Dream11TeamValidator, DREAM11_RULES, TeamComposition } from './data-integration';
+import Dream11TeamValidator, { DREAM11_RULES, TeamComposition } from './dream11-validator';
 
 type AIProvider = 'openai' | 'gemini';
 
@@ -27,6 +27,17 @@ export interface TeamGenerationRequest {
       viceCaptain: string;
       percentage: number;
     }>;
+    // For Strategy 3 user inputs and analysis
+    userPredictions?: any;
+    matchConditions?: {
+      format: string;
+      pitch: string;
+      weather: string;
+      venue: string;
+    };
+    team1Name?: string;
+    team2Name?: string;
+    aiAnalysis?: any;
   };
 }
 
@@ -52,7 +63,8 @@ export interface AITeamAnalysis {
   riskScore: number;
   expectedPoints: number;
   confidence: number;
-  reasoning: string;
+  reasoning?: string;
+  insights?: string[];
 }
 
 class AIService {
@@ -289,7 +301,7 @@ class AIService {
     teamIndex: number
   ): Promise<AITeamAnalysis> {
     // Get a valid Dream11 team composition
-    const validCompositions = Dream11TeamValidator.generateValidTeamComposition();
+    const validCompositions = Dream11TeamValidator.generateValidTeamCompositions();
     const targetComposition = validCompositions[teamIndex % validCompositions.length];
     
     const selectedPlayers: Player[] = [];
@@ -335,16 +347,34 @@ class AIService {
       }
     });
 
+    // Ensure exactly 11 players by adding remaining from recommendations
+    for (const rec of recommendations) {
+      if (selectedPlayers.length >= DREAM11_RULES.totalPlayers) break;
+      const p = rec.player;
+      if (selectedPlayers.includes(p)) continue;
+      selectedPlayers.push(p);
+      const c = p.credits || 8;
+      totalCredits += c;
+      const teamName = p.team_name;
+      teamCounts[teamName] = (teamCounts[teamName] || 0) + 1;
+      this.updateRoleBalance(roleBalance, Dream11TeamValidator.normalizeRole(p.player_role || ''));
+    }
+
+    // If still under 11 players after fill, fallback
+    if (selectedPlayers.length < DREAM11_RULES.totalPlayers) {
+      console.warn(`Only ${selectedPlayers.length} players selected, using fallback team`);
+      return this.generateFallbackTeam(recommendations, request, teamIndex);
+    }
+
     // Validate the team
     const validation = Dream11TeamValidator.validateTeamComposition(selectedPlayers);
     if (!validation.isValid) {
-      console.warn('AI generated team validation failed:', validation.errors);
-      // Generate fallback team
+      // AI team validation failed, falling back silently
       return this.generateFallbackTeam(recommendations, request, teamIndex);
     }
 
     // Select captain and vice-captain
-    const { captain, viceCaptain } = this.selectCaptainAndViceCaptain(selectedPlayers, recommendations, request);
+    const { captain, viceCaptain } = this.selectCaptainAndViceCaptain(selectedPlayers, recommendations, request, teamIndex);
 
     return {
       players: selectedPlayers,
@@ -417,6 +447,12 @@ class AIService {
       }
     }
 
+    // If still under 11 players after fill, fallback
+    if (selectedPlayers.length < 11) {
+      console.warn(`Only ${selectedPlayers.length} players selected, using fallback team`);
+      return this.generateFallbackTeam(recommendations, request, teamIndex);
+    }
+
     const captain = selectedPlayers[0];
     const viceCaptain = selectedPlayers[1];
 
@@ -430,99 +466,6 @@ class AIService {
       expectedPoints: 400,
       confidence: 70,
       insights: ['Fallback team generated due to validation issues']
-    };
-  }
-        coreCount = 4;
-        hedgeCount = 4;
-        differentialCount = 3;
-        break;
-    }
-
-    // Select players based on strategy
-    const coreRecommendations = recommendations.filter(r => r.role === 'core').slice(0, coreCount);
-    const hedgeRecommendations = recommendations.filter(r => r.role === 'hedge').slice(0, hedgeCount);
-    const differentialRecommendations = recommendations.filter(r => r.role === 'differential').slice(0, differentialCount);
-
-    // Combine recommendations with some randomization for team variety
-    const teamRecommendations = [
-      ...coreRecommendations,
-      ...hedgeRecommendations.slice(teamIndex % hedgeRecommendations.length),
-      ...differentialRecommendations.slice(teamIndex % differentialRecommendations.length)
-    ].slice(0, 11);
-
-    // Ensure role balance
-    let selectedWK = 0, selectedBAT = 0, selectedAR = 0, selectedBWL = 0;
-
-    for (const rec of teamRecommendations) {
-      const player = rec.player;
-      
-      // Check role limits
-      if (player.player_role === 'WK' && selectedWK >= 2) continue;
-      if (player.player_role === 'BAT' && selectedBAT >= 6) continue;
-      if (player.player_role === 'AR' && selectedAR >= 4) continue;
-      if (player.player_role === 'BWL' && selectedBWL >= 6) continue;
-      
-      // Check credit limit
-      if (totalCredits + player.credits > maxCredits) continue;
-
-      selectedPlayers.push(player);
-      totalCredits += player.credits;
-
-      // Update role counts
-      switch (player.player_role) {
-        case 'WK': selectedWK++; roleBalance.wicketKeepers++; break;
-        case 'BAT': selectedBAT++; roleBalance.batsmen++; break;
-        case 'AR': selectedAR++; roleBalance.allRounders++; break;
-        case 'BWL': selectedBWL++; roleBalance.bowlers++; break;
-      }
-
-      if (selectedPlayers.length === 11) break;
-    }
-
-    // Fill remaining slots if needed
-    while (selectedPlayers.length < 11 && recommendations.length > selectedPlayers.length) {
-      const remainingRecs = recommendations.filter(r => !selectedPlayers.includes(r.player));
-      if (remainingRecs.length === 0) break;
-      
-      const nextPlayer = remainingRecs[0].player;
-      if (totalCredits + nextPlayer.credits <= maxCredits) {
-        selectedPlayers.push(nextPlayer);
-        totalCredits += nextPlayer.credits;
-        
-        switch (nextPlayer.player_role) {
-          case 'WK': roleBalance.wicketKeepers++; break;
-          case 'BAT': roleBalance.batsmen++; break;
-          case 'AR': roleBalance.allRounders++; break;
-          case 'BWL': roleBalance.bowlers++; break;
-        }
-      } else {
-        break;
-      }
-    }
-
-    // Select captain and vice-captain
-    const captainCandidates = recommendations
-      .filter(r => selectedPlayers.includes(r.player))
-      .sort((a, b) => (b.captaincy_score || 0) - (a.captaincy_score || 0));
-
-    const captain = captainCandidates[0]?.player || selectedPlayers[0];
-    const viceCaptain = captainCandidates[1]?.player || selectedPlayers[1];
-
-    // Calculate team metrics
-    const riskScore = this.calculateRiskScore(selectedPlayers);
-    const expectedPoints = this.calculateExpectedPoints(selectedPlayers, captain, viceCaptain);
-    const confidence = this.calculateTeamConfidence(recommendations.filter(r => selectedPlayers.includes(r.player)));
-
-    return {
-      players: selectedPlayers,
-      captain,
-      viceCaptain,
-      totalCredits,
-      roleBalance,
-      riskScore,
-      expectedPoints,
-      confidence,
-      reasoning: this.generateTeamReasoning(recommendations.filter(r => selectedPlayers.includes(r.player)), request.strategy)
     };
   }
 
@@ -558,9 +501,10 @@ class AIService {
         // Calculate team metrics
         const totalCredits = players.reduce((sum: number, p: any) => sum + (p.credits || 9), 0);
         const roleBalance = this.calculateRoleBalance(players);
-        const riskScore = this.calculateRiskScore(players);
-        const expectedPoints = this.calculateExpectedPoints(players, captain, viceCaptain);
-        const confidence = 85; // Fixed confidence for user-selected teams
+        const riskScore = this.calculateRiskScore(players, request);
+        const expectedPoints = this.calculateExpectedPoints(players);
+        // Default confidence for Same XI teams
+        const confidence = 70;
 
         teams.push({
           players: [...players], // Create a copy
@@ -627,28 +571,67 @@ class AIService {
   private selectCaptainAndViceCaptain(
     players: Player[],
     recommendations: AIPlayerRecommendation[],
-    request: TeamGenerationRequest
+    request: TeamGenerationRequest,
+    teamIndex: number = 0
   ): { captain: Player; viceCaptain: Player } {
-    // User preferences first
+    // 1. Explicit user preference
     if (request.userPreferences?.captain && request.userPreferences?.viceCaptain) {
-      const captain = players.find(p => p.name === request.userPreferences?.captain) || players[0];
-      const viceCaptain = players.find(p => p.name === request.userPreferences?.viceCaptain) || players[1];
-      return { captain, viceCaptain };
+      const cap = players.find(p => p.name === request.userPreferences!.captain) || players[0];
+      const vc = players.find(p => p.name === request.userPreferences!.viceCaptain) || players[1];
+      return { captain: cap, viceCaptain: vc };
     }
-    
-    // Sort by captaincy score from recommendations
+
+    // 2. Bias towards team predicted to score more with batting priority
+    if (request.userPreferences?.userPredictions && request.userPreferences.team1Name && request.userPreferences.team2Name) {
+      const preds = request.userPreferences.userPredictions;
+      // Map predicted runs to numeric for comparison
+      let teamARuns = 0;
+      let teamBRuns = 0;
+      const runMap: Record<string, number> = { high: 3, medium: 2, low: 1 };
+      if (preds.teamA.runsExpected) {
+        teamARuns = runMap[preds.teamA.runsExpected] || 0;
+        teamBRuns = runMap[preds.teamB.runsExpected] || 0;
+      } else if (preds.teamA.runs50Overs) {
+        teamARuns = parseInt(preds.teamA.runs50Overs) || 0;
+        teamBRuns = parseInt(preds.teamB.runs50Overs) || 0;
+      } else if (preds.teamA.firstInnings) {
+        teamARuns = (parseInt(preds.teamA.firstInnings) || 0) + (parseInt(preds.teamA.secondInnings) || 0);
+        teamBRuns = (parseInt(preds.teamB.firstInnings) || 0) + (parseInt(preds.teamB.secondInnings) || 0);
+      }
+      const preferredTeam = teamARuns >= teamBRuns ? request.userPreferences.team1Name! : request.userPreferences.team2Name!;
+      // Filter players from preferred team
+      const teamPlayers = players.filter(p => p.team_name === preferredTeam);
+      if (teamPlayers.length > 0) {
+        // Prioritize batters and all-rounders
+        const battingCandidates = teamPlayers.filter(p => p.player_role === 'BAT' || p.player_role === 'AR');
+        const capPool = battingCandidates.length > 0 ? battingCandidates : teamPlayers;
+        // Score candidates by captaincy_score
+        const scoredCaps = capPool.map(p => ({ p, score: recommendations.find(r => r.player.id === p.id)?.captaincy_score || 0 }))
+                           .sort((a, b) => b.score - a.score);
+        // Rotate captain selection
+        const cap = scoredCaps[teamIndex % scoredCaps.length]?.p || scoredCaps[0]?.p;
+        let vc: Player;
+        if (scoredCaps.length > 1) {
+          // Rotate vice-captain among top candidates
+          vc = scoredCaps[(teamIndex + 1) % scoredCaps.length]?.p || scoredCaps[1]?.p;
+        } else {
+          // Fallback vice-captain from overall highest captaincy_score excluding cap
+          const globalScored = players.map(p => ({ p, score: recommendations.find(r => r.player.id === p.id)?.captaincy_score || 0 }))
+                                   .sort((a, b) => b.score - a.score);
+          vc = globalScored.find(item => item.p.id !== cap.id)?.p || cap;
+        }
+        return { captain: cap, viceCaptain: vc };
+      }
+    }
+
+    // 3. Default: sort all by captaincy_score and rotate
     const playersWithScores = players.map(player => {
       const rec = recommendations.find(r => r.player.id === player.id);
-      return {
-        player,
-        score: rec?.captaincy_score || 0
-      };
+      return { player, score: rec?.captaincy_score || 0 };
     }).sort((a, b) => b.score - a.score);
-    
-    return {
-      captain: playersWithScores[0]?.player || players[0],
-      viceCaptain: playersWithScores[1]?.player || players[1]
-    };
+    const cap = playersWithScores[teamIndex % playersWithScores.length]?.player || players[0];
+    const vc = playersWithScores[(teamIndex+1) % playersWithScores.length]?.player || players[1];
+    return { captain: cap, viceCaptain: vc };
   }
 
   private calculateRiskScore(players: Player[], request: TeamGenerationRequest): number {

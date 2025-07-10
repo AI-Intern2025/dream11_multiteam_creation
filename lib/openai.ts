@@ -503,6 +503,27 @@ Provide a helpful response based on the comprehensive analysis.
       return "I'd be happy to help with your team selection! Based on the current analysis, I can provide recommendations for players, captaincy choices, and team strategy. What specific aspect would you like to discuss?";
     }
   }
+
+  async generateSimpleResponse(prompt: string): Promise<string> {
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        max_tokens: 1000,
+        temperature: 0.7,
+      });
+
+      return response.choices[0]?.message?.content || '';
+    } catch (error) {
+      console.error('OpenAI simple response failed:', error);
+      throw error;
+    }
+  }
 }
 
 export const openAIService = new OpenAIService();

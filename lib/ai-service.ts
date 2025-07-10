@@ -115,6 +115,52 @@ class AIService {
     }
   }
 
+  async generateAnalysis(prompt: string): Promise<string> {
+    try {
+      if (this.provider === 'gemini') {
+        return await geminiService.generateSimpleResponse(prompt);
+      } else {
+        return await openAIService.generateSimpleResponse(prompt);
+      }
+    } catch (error) {
+      console.error(`Error with ${this.provider} analysis, trying fallback:`, error);
+      
+      // Try the other provider as fallback
+      try {
+        if (this.provider === 'openai') {
+          console.log('🔄 Falling back to Gemini...');
+          return await geminiService.generateSimpleResponse(prompt);
+        } else {
+          console.log('🔄 Falling back to OpenAI...');
+          return await openAIService.generateSimpleResponse(prompt);
+        }
+      } catch (fallbackError) {
+        console.error('Both AI providers failed for analysis:', fallbackError);
+        return this.getFallbackAnalysisString(prompt);
+      }
+    }
+  }
+
+  private getFallbackAnalysisString(prompt: string): string {
+    // Extract key info from prompt for rule-based fallback
+    const isT20 = prompt.includes('T20');
+    const isODI = prompt.includes('ODI');
+    const isTest = prompt.includes('Test');
+    
+    const format = isT20 ? 'T20' : isODI ? 'ODI' : isTest ? 'Test' : 'T20';
+    
+    return JSON.stringify({
+      format: format,
+      predictions: {
+        teamA: { runsExpected: "medium", wicketsConceded: "medium" },
+        teamB: { runsExpected: "medium", wicketsConceded: "medium" },
+        favoredRoles: ["BAT", "BWL", "AR"],
+        corePlayerCount: 8,
+        strategy: `For ${format} format, consider balanced team selection. Focus on in-form players and adapt to pitch conditions.`
+      }
+    });
+  }
+
   getProvider(): AIProvider {
     return this.provider;
   }
