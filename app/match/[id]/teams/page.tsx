@@ -43,7 +43,7 @@ export default function TeamsPage() {
   } = useTeamGeneration();
   const { data: matchData } = useMatchData(matchId);
 
-  // Handler to trigger team generation from wizard
+  // Handler to trigger teaism generation from wizard
   const onGenerate = async (userPreferences: any, teamCount: number) => {
     setHasGenerated(false);
     const strategyName = userPreferences?.strategy || strategy || 'strategy1';

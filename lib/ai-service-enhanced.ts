@@ -14,6 +14,12 @@ export interface TeamGenerationRequest {
   strategy: string;
   teamCount: number;
   userPreferences?: {
+    // Core-Hedge picks for Strategy 4
+    corePlayers?: string[]; // 75%+ teams - safe picks
+    hedgePlayers?: string[]; // ~50% teams - risk/reward picks  
+    differentialPlayers?: string[]; // 1-2 teams - high differential
+    corePercentage?: number; // percentage of teams with core players
+    hedgePercentage?: number; // percentage of teams with hedge players
     captain?: string;
     viceCaptain?: string;
     preferredPlayers?: string[];
@@ -300,10 +306,15 @@ class AIService {
     request: TeamGenerationRequest,
     teamIndex: number
   ): Promise<AITeamAnalysis> {
+    // Strategy 4: Core-Hedge comprehensive implementation
+    if (request.strategy === 'core-hedge' && request.userPreferences) {
+      return this.generateCoreHedgeTeam(recommendations, request, teamIndex);
+    }
+
     // Get a valid Dream11 team composition
     const validCompositions = Dream11TeamValidator.generateValidTeamCompositions();
     const targetComposition = validCompositions[teamIndex % validCompositions.length];
-    
+
     const selectedPlayers: Player[] = [];
     let totalCredits = 0;
     const maxCredits = DREAM11_RULES.maxCredits;
@@ -469,6 +480,143 @@ class AIService {
     };
   }
 
+  private generateCoreHedgeTeam(
+    recommendations: AIPlayerRecommendation[],
+    request: TeamGenerationRequest,
+    teamIndex: number
+  ): AITeamAnalysis {
+    const prefs = request.userPreferences!;
+    const selectedPlayers: Player[] = [];
+    
+    // Get player objects from names
+    const getPlayersFromNames = (names: string[]): Player[] => {
+      return names.map(name => 
+        recommendations.find(r => r.player.name === name)?.player
+      ).filter((p): p is Player => !!p);
+    };
+
+    // 1. Core Players (75%+ teams) - Always include
+    const corePlayerObjs = getPlayersFromNames(prefs.corePlayers || []);
+    selectedPlayers.push(...corePlayerObjs);
+
+    // 2. Hedge Players (~50% teams) - Include based on team index rotation
+    const hedgePlayerObjs = getPlayersFromNames(prefs.hedgePlayers || []);
+    const hedgePercentage = prefs.hedgePercentage || 50;
+    const includeHedge = (teamIndex * 100 / request.teamCount) < hedgePercentage;
+    
+    if (includeHedge && hedgePlayerObjs.length > 0) {
+      // Rotate through hedge players for variation
+      const hedgeCount = Math.min(
+        hedgePlayerObjs.length,
+        DREAM11_RULES.totalPlayers - selectedPlayers.length - 1 // leave room for differential
+      );
+      for (let i = 0; i < hedgeCount; i++) {
+        const hedgeIndex = (teamIndex + i) % hedgePlayerObjs.length;
+        const hedgePlayer = hedgePlayerObjs[hedgeIndex];
+        if (!selectedPlayers.find(p => p.id === hedgePlayer.id)) {
+          selectedPlayers.push(hedgePlayer);
+        }
+      }
+    }
+
+    // 3. Differential Players (1-2 teams) - Very selective inclusion
+    const differentialPlayerObjs = getPlayersFromNames(prefs.differentialPlayers || []);
+    const isDifferentialTeam = teamIndex < 2; // Only first 1-2 teams get differentials
+    
+    if (isDifferentialTeam && differentialPlayerObjs.length > 0) {
+      const diffPlayer = differentialPlayerObjs[teamIndex % differentialPlayerObjs.length];
+      if (!selectedPlayers.find(p => p.id === diffPlayer.id)) {
+        selectedPlayers.push(diffPlayer);
+      }
+    }
+
+    // 4. Fill remaining slots with top recommendations (ensuring Dream11 rules)
+    const remainingSlots = DREAM11_RULES.totalPlayers - selectedPlayers.length;
+    const usedPlayerIds = new Set(selectedPlayers.map(p => p.id));
+    const availableRecs = recommendations.filter(rec => !usedPlayerIds.has(rec.player.id));
+    
+    // Track team counts and credits for Dream11 validation
+    let totalCredits = selectedPlayers.reduce((sum, p) => sum + (p.credits || 8), 0);
+    const teamCounts: Record<string, number> = {};
+    selectedPlayers.forEach(p => {
+      const team = p.team_name || 'Unknown';
+      teamCounts[team] = (teamCounts[team] || 0) + 1;
+    });
+
+    // Fill remaining slots with valid players
+    for (let i = 0; i < remainingSlots && availableRecs.length > 0; i++) {
+      const rec = availableRecs[i];
+      const player = rec.player;
+      const playerCredits = player.credits || 8;
+      const playerTeam = player.team_name || 'Unknown';
+      
+      // Check Dream11 constraints
+      if (totalCredits + playerCredits <= DREAM11_RULES.maxCredits &&
+          (teamCounts[playerTeam] || 0) < DREAM11_RULES.maxPlayersFromOneTeam) {
+        selectedPlayers.push(player);
+        totalCredits += playerCredits;
+        teamCounts[playerTeam] = (teamCounts[playerTeam] || 0) + 1;
+      }
+    }
+
+    // Ensure we have exactly 11 players
+    while (selectedPlayers.length < DREAM11_RULES.totalPlayers) {
+      const fallbackPlayer = recommendations.find(rec => 
+        !selectedPlayers.some(p => p.id === rec.player.id)
+      )?.player;
+      if (fallbackPlayer) {
+        selectedPlayers.push(fallbackPlayer);
+      } else {
+        break;
+      }
+    }
+
+    // Validate team composition
+    const validation = Dream11TeamValidator.validateTeamComposition(selectedPlayers);
+    if (!validation.isValid) {
+      console.warn('Core-hedge team validation failed, using fallback');
+      return this.generateFallbackTeam(recommendations, request, teamIndex);
+    }
+
+    // Select captain and vice-captain using combos
+    const { captain, viceCaptain } = this.selectCaptainAndViceCaptain(
+      selectedPlayers,
+      recommendations,
+      request,
+      teamIndex
+    );
+
+    // Calculate team insights
+    const coreCount = selectedPlayers.filter(p => 
+      corePlayerObjs.some(core => core.id === p.id)
+    ).length;
+    const hedgeCount = selectedPlayers.filter(p => 
+      hedgePlayerObjs.some(hedge => hedge.id === p.id)
+    ).length;
+    const diffCount = selectedPlayers.filter(p => 
+      differentialPlayerObjs.some(diff => diff.id === p.id)
+    ).length;
+
+    const insights = [
+      `Core-hedge strategy: ${coreCount} core, ${hedgeCount} hedge, ${diffCount} differential players`,
+      `Team ${teamIndex + 1}: ${includeHedge ? 'Includes hedge picks' : 'Core-focused team'}`,
+      `${isDifferentialTeam ? 'Differential team with unique picks' : 'Standard core-hedge balance'}`
+    ];
+
+    return {
+      players: selectedPlayers.slice(0, DREAM11_RULES.totalPlayers),
+      captain,
+      viceCaptain,
+      totalCredits: selectedPlayers.reduce((sum, p) => sum + (p.credits || 8), 0),
+      roleBalance: this.calculateRoleBalance(selectedPlayers),
+      riskScore: this.calculateRiskScore(selectedPlayers, request),
+      expectedPoints: this.calculateExpectedPoints(selectedPlayers),
+      confidence: this.calculateTeamConfidence(selectedPlayers, recommendations),
+      insights,
+      reasoning: `Core-hedge team ${teamIndex + 1} with ${coreCount}/${hedgeCount}/${diffCount} core/hedge/diff split`
+    };
+  }
+
   private async generateSameXITeams(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
     const { players, combos } = request.userPreferences!;
     const teams: AITeamAnalysis[] = [];
@@ -542,19 +690,28 @@ class AIService {
     request: TeamGenerationRequest,
     teamIndex: number
   ): AIPlayerRecommendation[] {
-    // Sort by confidence and apply strategy-specific logic
-    let filtered = [...rolePlayers].sort((a, b) => b.confidence - a.confidence);
-    
+    // Composite sort by confidence (form), recent points, credits, and ownership for balanced picks
+    const scored = rolePlayers.map(rec => {
+      const p = rec.player;
+      const formScore = rec.confidence * 100; // scale 0-100
+      const pointsScore = (p.points || 50); // player recent performance
+      const creditScore = (p.credits || 8) * 10; // high credit reliable
+      const diffScore = 100 - (p.selection_percentage || 0); // low ownership differential
+      return { rec, score: formScore + pointsScore + creditScore + diffScore };
+    });
+    let filtered = scored.sort((a, b) => b.score - a.score).map(item => item.rec);
+
     switch (request.strategy) {
       case 'core-hedge':
         // Prefer core players with high confidence
         filtered = filtered.filter(p => p.role === 'core' || p.confidence > 70);
         break;
       case 'differential':
-        // Mix of safe and differential picks
+        // Mix of high-credit (safe) and low-credit (differential) picks
         const safeCount = Math.ceil(filtered.length * 0.6);
-        const differential = filtered.slice(safeCount);
-        filtered = [...filtered.slice(0, safeCount), ...differential];
+        const highCredit = filtered.filter(r => (r.player.credits || 0) >= 8).slice(0, safeCount);
+        const lowCredit = filtered.filter(r => (r.player.credits || 0) < 8).slice(0, filtered.length - safeCount);
+        filtered = [...highCredit, ...lowCredit, ...filtered];
         break;
       case 'stats-driven':
         // High confidence players only
@@ -564,7 +721,7 @@ class AIService {
         // Default balanced approach
         break;
     }
-    
+
     return filtered;
   }
 
@@ -574,14 +731,23 @@ class AIService {
     request: TeamGenerationRequest,
     teamIndex: number = 0
   ): { captain: Player; viceCaptain: Player } {
-    // 1. Explicit user preference
+    // 1. Core-hedge explicit C/VC combos
+    if (request.strategy === 'core-hedge' && request.userPreferences?.combos?.length) {
+      const combos = request.userPreferences.combos;
+      const combo = combos[teamIndex % combos.length];
+      const cap = players.find(p => p.name === combo.captain) || players[0];
+      const vc = players.find(p => p.name === combo.viceCaptain) || players[1] || cap;
+      return { captain: cap, viceCaptain: vc };
+    }
+
+    // 2. Explicit user preference
     if (request.userPreferences?.captain && request.userPreferences?.viceCaptain) {
       const cap = players.find(p => p.name === request.userPreferences!.captain) || players[0];
       const vc = players.find(p => p.name === request.userPreferences!.viceCaptain) || players[1];
       return { captain: cap, viceCaptain: vc };
     }
 
-    // 2. Bias towards team predicted to score more with batting priority
+    // 3. Bias towards team predicted to score more with batting priority
     if (request.userPreferences?.userPredictions && request.userPreferences.team1Name && request.userPreferences.team2Name) {
       const preds = request.userPreferences.userPredictions;
       // Map predicted runs to numeric for comparison
@@ -624,7 +790,7 @@ class AIService {
       }
     }
 
-    // 3. Default: sort all by captaincy_score and rotate
+    // 4. Default: sort all by captaincy_score and rotate
     const playersWithScores = players.map(player => {
       const rec = recommendations.find(r => r.player.id === player.id);
       return { player, score: rec?.captaincy_score || 0 };
