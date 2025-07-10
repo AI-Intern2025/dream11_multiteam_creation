@@ -2,6 +2,7 @@ import { sportRadarService } from './sportradar';
 import { openAIService } from './openai';
 import { geminiService } from './gemini';
 import type { MatchAnalysis } from './openai';
+import Dream11TeamValidator, { DREAM11_RULES, TeamComposition } from './dream11-validator';
 
 interface EnrichedMatchData {
   match: any;
@@ -409,30 +410,113 @@ class DataIntegrationService {
     analysis: MatchAnalysis | undefined,
     strategy: string
   ): any[] {
-    // Simple player selection logic
-    const selectedPlayers: any[] = [];
-    const roleTargets = { BAT: 4, BOWL: 4, ALL: 2, WK: 1 };
+    // Get a valid team composition based on Dream11 rules
+    const validCompositions = Dream11TeamValidator.generateValidTeamComposition();
+    const targetComposition = validCompositions[Math.floor(Math.random() * validCompositions.length)];
     
-    // Group players by role
-    const playersByRole = {
-      BAT: players.filter(p => p.role === 'BAT'),
-      BOWL: players.filter(p => p.role === 'BOWL'),
-      ALL: players.filter(p => p.role === 'ALL'),
-      WK: players.filter(p => p.role === 'WK')
-    };
-
-    // Select players for each role
-    Object.entries(roleTargets).forEach(([role, count]) => {
+    // Group players by normalized role
+    const playersByRole = this.groupPlayersByRole(players);
+    
+    // Select players following Dream11 rules
+    const selectedPlayers: any[] = [];
+    let totalCredits = 0;
+    const maxCredits = DREAM11_RULES.maxCredits;
+    
+    // Track team selection to enforce max 7 from one team
+    const teamCounts: Record<string, number> = {};
+    
+    // Select players for each role according to target composition
+    Object.entries(targetComposition).forEach(([role, count]) => {
       const rolePlayers = playersByRole[role as keyof typeof playersByRole] || [];
+      
+      // Sort players by performance/form for better selection
+      const sortedPlayers = this.sortPlayersByPerformance(rolePlayers, analysis, strategy);
+      
+      let selected = 0;
+      for (const player of sortedPlayers) {
+        if (selected >= count) break;
+        
+        const playerCredits = this.getPlayerCredits(player, analysis);
+        const playerTeam = player.team || player.team_name || 'Unknown';
+        
+        // Check Dream11 constraints
+        if (totalCredits + playerCredits <= maxCredits &&
+            (teamCounts[playerTeam] || 0) < DREAM11_RULES.maxPlayersFromOneTeam) {
+          
+          selectedPlayers.push({
+            ...player,
+            role: Dream11TeamValidator.normalizeRole(player.role || player.player_role),
+            credits: playerCredits,
+            expectedPoints: this.getExpectedPoints(player, analysis, strategy)
+          });
+          
+          totalCredits += playerCredits;
+          teamCounts[playerTeam] = (teamCounts[playerTeam] || 0) + 1;
+          selected++;
+        }
+      }
+    });
+
+    // Validate the generated team
+    const validation = Dream11TeamValidator.validateTeamComposition(selectedPlayers);
+    if (!validation.isValid) {
+      console.warn('Generated team validation failed:', validation.errors);
+      // Try to fix the team or generate a fallback
+      return this.generateFallbackTeam(players, analysis, strategy);
+    }
+
+    return selectedPlayers.slice(0, 11); // Ensure exactly 11 players
+  }
+
+  private groupPlayersByRole(players: any[]): Record<string, any[]> {
+    const grouped: Record<string, any[]> = { WK: [], BAT: [], AR: [], BWL: [] };
+    
+    players.forEach(player => {
+      const normalizedRole = Dream11TeamValidator.normalizeRole(player.role || player.player_role);
+      if (grouped[normalizedRole]) {
+        grouped[normalizedRole].push(player);
+      }
+    });
+    
+    return grouped;
+  }
+
+  private sortPlayersByPerformance(players: any[], analysis: MatchAnalysis | undefined, strategy: string): any[] {
+    return players.sort((a, b) => {
+      // Sort by expected points, recent form, and credits efficiency
+      const aScore = this.getExpectedPoints(a, analysis, strategy);
+      const bScore = this.getExpectedPoints(b, analysis, strategy);
+      
+      if (aScore !== bScore) return bScore - aScore;
+      
+      // Secondary sort by credits efficiency (points per credit)
+      const aCredits = this.getPlayerCredits(a, analysis);
+      const bCredits = this.getPlayerCredits(b, analysis);
+      const aEfficiency = aScore / Math.max(aCredits, 1);
+      const bEfficiency = bScore / Math.max(bCredits, 1);
+      
+      return bEfficiency - aEfficiency;
+    });
+  }
+
+  private generateFallbackTeam(players: any[], analysis: MatchAnalysis | undefined, strategy: string): any[] {
+    // Fallback with strict Dream11 composition: 1 WK, 4 BAT, 2 AR, 4 BWL
+    const fallbackComposition = { WK: 1, BAT: 4, AR: 2, BWL: 4 };
+    const playersByRole = this.groupPlayersByRole(players);
+    const selectedPlayers: any[] = [];
+    
+    Object.entries(fallbackComposition).forEach(([role, count]) => {
+      const rolePlayers = playersByRole[role] || [];
       const selected = rolePlayers.slice(0, count).map(p => ({
         ...p,
-        credits: this.getPlayerCredits(p, analysis),
+        role: role,
+        credits: Math.min(this.getPlayerCredits(p, analysis), 12), // Cap credits to ensure valid team
         expectedPoints: this.getExpectedPoints(p, analysis, strategy)
       }));
       selectedPlayers.push(...selected);
     });
 
-    return selectedPlayers.slice(0, 11); // Ensure exactly 11 players
+    return selectedPlayers.slice(0, 11);
   }
 
   private getMockMatches(): any[] {
@@ -580,6 +664,121 @@ class DataIntegrationService {
       { id: 'p10', name: 'Mitchell Starc', role: 'BOWL', team: 'AUS', credits: 8, expectedPoints: 48 },
       { id: 'p11', name: 'Adil Rashid', role: 'BOWL', team: 'ENG', credits: 7, expectedPoints: 45 }
     ];
+  }
+}
+
+  private selectPlayersForTeam(
+    players: any[],
+    analysis: MatchAnalysis | undefined,
+    strategy: string
+  ): any[] {
+    // Get a valid team composition based on Dream11 rules
+    const validCompositions = Dream11TeamValidator.generateValidTeamCompositions();
+    const targetComposition = validCompositions[Math.floor(Math.random() * validCompositions.length)];
+    
+    // Group players by normalized role
+    const playersByRole = this.groupPlayersByRole(players);
+    
+    // Select players following Dream11 rules
+    const selectedPlayers: any[] = [];
+    let totalCredits = 0;
+    const maxCredits = DREAM11_RULES.maxCredits;
+    
+    // Track team selection to enforce max 7 from one team
+    const teamCounts: Record<string, number> = {};
+    
+    // Select players for each role according to target composition
+    Object.entries(targetComposition).forEach(([role, count]) => {
+      const rolePlayers = playersByRole[role as keyof typeof playersByRole] || [];
+      
+      // Sort players by performance/form for better selection
+      const sortedPlayers = this.sortPlayersByPerformance(rolePlayers, analysis, strategy);
+      
+      let selected = 0;
+      for (const player of sortedPlayers) {
+        if (selected >= count) break;
+        
+        const playerCredits = this.getPlayerCredits(player, analysis);
+        const playerTeam = player.team || player.team_name || 'Unknown';
+        
+        // Check Dream11 constraints
+        if (totalCredits + playerCredits <= maxCredits &&
+            (teamCounts[playerTeam] || 0) < DREAM11_RULES.maxPlayersFromOneTeam) {
+          
+          selectedPlayers.push({
+            ...player,
+            role: Dream11TeamValidator.normalizeRole(player.role || player.player_role),
+            credits: playerCredits,
+            expectedPoints: this.getExpectedPoints(player, analysis, strategy)
+          });
+          
+          totalCredits += playerCredits;
+          teamCounts[playerTeam] = (teamCounts[playerTeam] || 0) + 1;
+          selected++;
+        }
+      }
+    });
+
+    // Validate the generated team
+    const validation = Dream11TeamValidator.validateTeamComposition(selectedPlayers);
+    if (!validation.isValid) {
+      console.warn('Generated team validation failed:', validation.errors);
+      // Try to fix the team or generate a fallback
+      return this.generateFallbackTeam(players, analysis, strategy);
+    }
+
+    return selectedPlayers.slice(0, 11); // Ensure exactly 11 players
+  }
+
+  private groupPlayersByRole(players: any[]): Record<string, any[]> {
+    const grouped: Record<string, any[]> = { WK: [], BAT: [], AR: [], BWL: [] };
+    
+    players.forEach(player => {
+      const normalizedRole = Dream11TeamValidator.normalizeRole(player.role || player.player_role);
+      if (grouped[normalizedRole]) {
+        grouped[normalizedRole].push(player);
+      }
+    });
+    
+    return grouped;
+  }
+
+  private sortPlayersByPerformance(players: any[], analysis: MatchAnalysis | undefined, strategy: string): any[] {
+    return players.sort((a, b) => {
+      // Sort by expected points, recent form, and credits efficiency
+      const aScore = this.getExpectedPoints(a, analysis, strategy);
+      const bScore = this.getExpectedPoints(b, analysis, strategy);
+      
+      if (aScore !== bScore) return bScore - aScore;
+      
+      // Secondary sort by credits efficiency (points per credit)
+      const aCredits = this.getPlayerCredits(a, analysis);
+      const bCredits = this.getPlayerCredits(b, analysis);
+      const aEfficiency = aScore / Math.max(aCredits, 1);
+      const bEfficiency = bScore / Math.max(bCredits, 1);
+      
+      return bEfficiency - aEfficiency;
+    });
+  }
+
+  private generateFallbackTeam(players: any[], analysis: MatchAnalysis | undefined, strategy: string): any[] {
+    // Fallback with strict Dream11 composition: 1 WK, 4 BAT, 2 AR, 4 BWL
+    const fallbackComposition = { WK: 1, BAT: 4, AR: 2, BWL: 4 };
+    const playersByRole = this.groupPlayersByRole(players);
+    const selectedPlayers: any[] = [];
+    
+    Object.entries(fallbackComposition).forEach(([role, count]) => {
+      const rolePlayers = playersByRole[role] || [];
+      const selected = rolePlayers.slice(0, count).map(p => ({
+        ...p,
+        role: role,
+        credits: Math.min(this.getPlayerCredits(p, analysis), 12), // Cap credits to ensure valid team
+        expectedPoints: this.getExpectedPoints(p, analysis, strategy)
+      }));
+      selectedPlayers.push(...selected);
+    });
+
+    return selectedPlayers.slice(0, 11);
   }
 }
 

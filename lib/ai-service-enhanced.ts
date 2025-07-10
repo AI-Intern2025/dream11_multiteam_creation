@@ -4,6 +4,9 @@ import { neonDB, Player, Match } from './neon-db';
 import { SportRadarMatch, SportRadarPlayer } from './sportradar';
 import { MatchAnalysis } from './openai';
 
+// Import Dream11 validation from data-integration
+import { Dream11TeamValidator, DREAM11_RULES, TeamComposition } from './data-integration';
+
 type AIProvider = 'openai' | 'gemini';
 
 export interface TeamGenerationRequest {
@@ -285,39 +288,150 @@ class AIService {
     request: TeamGenerationRequest,
     teamIndex: number
   ): Promise<AITeamAnalysis> {
+    // Get a valid Dream11 team composition
+    const validCompositions = Dream11TeamValidator.generateValidTeamComposition();
+    const targetComposition = validCompositions[teamIndex % validCompositions.length];
+    
     const selectedPlayers: Player[] = [];
     let totalCredits = 0;
-    const maxCredits = 100; // Dream11 credit limit
+    const maxCredits = DREAM11_RULES.maxCredits;
     
-    // Role requirements
-    const roleBalance = {
-      batsmen: 0,
-      bowlers: 0,
-      allRounders: 0,
-      wicketKeepers: 0
+    // Track team counts to enforce max 7 from one team
+    const teamCounts: Record<string, number> = {};
+    
+    // Group recommendations by role
+    const playersByRole = this.groupRecommendationsByRole(recommendations);
+    
+    // Role balance tracking with Dream11 rules
+    const roleBalance = { batsmen: 0, bowlers: 0, allRounders: 0, wicketKeepers: 0 };
+
+    // Select players for each role according to target composition
+    Object.entries(targetComposition).forEach(([role, count]) => {
+      const rolePlayers = playersByRole[role as keyof typeof playersByRole] || [];
+      
+      // Apply strategy-specific selection logic
+      const strategyFilteredPlayers = this.applyStrategyFiltering(rolePlayers, request, teamIndex);
+      
+      let selected = 0;
+      for (const rec of strategyFilteredPlayers) {
+        if (selected >= count) break;
+        
+        const player = rec.player;
+        const playerCredits = player.credits || 8;
+        const playerTeam = player.team_name || 'Unknown';
+        
+        // Check Dream11 constraints
+        if (totalCredits + playerCredits <= maxCredits &&
+            (teamCounts[playerTeam] || 0) < DREAM11_RULES.maxPlayersFromOneTeam) {
+          
+          selectedPlayers.push(player);
+          totalCredits += playerCredits;
+          teamCounts[playerTeam] = (teamCounts[playerTeam] || 0) + 1;
+          selected++;
+          
+          // Update role balance
+          this.updateRoleBalance(roleBalance, role);
+        }
+      }
+    });
+
+    // Validate the team
+    const validation = Dream11TeamValidator.validateTeamComposition(selectedPlayers);
+    if (!validation.isValid) {
+      console.warn('AI generated team validation failed:', validation.errors);
+      // Generate fallback team
+      return this.generateFallbackTeam(recommendations, request, teamIndex);
+    }
+
+    // Select captain and vice-captain
+    const { captain, viceCaptain } = this.selectCaptainAndViceCaptain(selectedPlayers, recommendations, request);
+
+    return {
+      players: selectedPlayers,
+      captain,
+      viceCaptain,
+      totalCredits,
+      roleBalance,
+      riskScore: this.calculateRiskScore(selectedPlayers, request),
+      expectedPoints: this.calculateExpectedPoints(selectedPlayers),
+      confidence: this.calculateTeamConfidence(selectedPlayers, recommendations),
+      insights: this.generateTeamInsights(selectedPlayers, request.strategy)
     };
+  }
 
-    // Strategy-specific logic
-    let coreCount = 6; // Default core players
-    let hedgeCount = 3;
-    let differentialCount = 2;
+  private groupRecommendationsByRole(recommendations: AIPlayerRecommendation[]): Record<string, AIPlayerRecommendation[]> {
+    const grouped: Record<string, AIPlayerRecommendation[]> = { WK: [], BAT: [], AR: [], BWL: [] };
+    
+    recommendations.forEach(rec => {
+      const normalizedRole = Dream11TeamValidator.normalizeRole(rec.player.player_role || 'BAT');
+      if (grouped[normalizedRole]) {
+        grouped[normalizedRole].push(rec);
+      }
+    });
+    
+    return grouped;
+  }
 
-    switch (request.strategy) {
-      case 'ai-chatbot':
-        // AI-guided selection based on user preferences
+  private updateRoleBalance(roleBalance: any, role: string): void {
+    switch (role) {
+      case 'WK':
+        roleBalance.wicketKeepers++;
         break;
-      case 'core-hedge':
-        coreCount = 7;
-        hedgeCount = 3;
-        differentialCount = 1;
+      case 'BAT':
+        roleBalance.batsmen++;
         break;
-      case 'stats-driven':
-        // Focus on high-confidence picks
-        coreCount = 8;
-        hedgeCount = 2;
-        differentialCount = 1;
+      case 'AR':
+        roleBalance.allRounders++;
         break;
-      case 'differential':
+      case 'BWL':
+        roleBalance.bowlers++;
+        break;
+    }
+  }
+
+  private generateFallbackTeam(
+    recommendations: AIPlayerRecommendation[],
+    request: TeamGenerationRequest,
+    teamIndex: number
+  ): AITeamAnalysis {
+    // Generate a basic valid team with 1-4-2-4 composition
+    const fallbackComposition = { WK: 1, BAT: 4, AR: 2, BWL: 4 };
+    const playersByRole = this.groupRecommendationsByRole(recommendations);
+    const selectedPlayers: Player[] = [];
+    
+    Object.entries(fallbackComposition).forEach(([role, count]) => {
+      const rolePlayers = playersByRole[role] || [];
+      const selected = rolePlayers.slice(0, count).map(rec => rec.player);
+      selectedPlayers.push(...selected);
+    });
+
+    // Ensure we have exactly 11 players
+    while (selectedPlayers.length < 11) {
+      const availablePlayers = recommendations.filter(rec => 
+        !selectedPlayers.some(p => p.id === rec.player.id)
+      );
+      if (availablePlayers.length > 0) {
+        selectedPlayers.push(availablePlayers[0].player);
+      } else {
+        break;
+      }
+    }
+
+    const captain = selectedPlayers[0];
+    const viceCaptain = selectedPlayers[1];
+
+    return {
+      players: selectedPlayers.slice(0, 11),
+      captain,
+      viceCaptain,
+      totalCredits: Math.min(100, selectedPlayers.reduce((sum, p) => sum + (p.credits || 8), 0)),
+      roleBalance: { batsmen: 4, bowlers: 4, allRounders: 2, wicketKeepers: 1 },
+      riskScore: 50,
+      expectedPoints: 400,
+      confidence: 70,
+      insights: ['Fallback team generated due to validation issues']
+    };
+  }
         coreCount = 4;
         hedgeCount = 4;
         differentialCount = 3;
@@ -479,36 +593,127 @@ class AIService {
     }, { batsmen: 0, bowlers: 0, allRounders: 0, wicketKeepers: 0 });
   }
 
-  private calculateRiskScore(players: Player[]): number {
-    const avgCredits = players.reduce((sum, p) => sum + p.credits, 0) / players.length;
-    const avgSelection = players.reduce((sum, p) => sum + p.selection_percentage, 0) / players.length;
+  private applyStrategyFiltering(
+    rolePlayers: AIPlayerRecommendation[],
+    request: TeamGenerationRequest,
+    teamIndex: number
+  ): AIPlayerRecommendation[] {
+    // Sort by confidence and apply strategy-specific logic
+    let filtered = [...rolePlayers].sort((a, b) => b.confidence - a.confidence);
     
-    // Higher credits and lower selection = higher risk
-    return Math.min((avgCredits * 10) + ((100 - avgSelection) / 2), 100);
+    switch (request.strategy) {
+      case 'core-hedge':
+        // Prefer core players with high confidence
+        filtered = filtered.filter(p => p.role === 'core' || p.confidence > 70);
+        break;
+      case 'differential':
+        // Mix of safe and differential picks
+        const safeCount = Math.ceil(filtered.length * 0.6);
+        const differential = filtered.slice(safeCount);
+        filtered = [...filtered.slice(0, safeCount), ...differential];
+        break;
+      case 'stats-driven':
+        // High confidence players only
+        filtered = filtered.filter(p => p.confidence > 65);
+        break;
+      default:
+        // Default balanced approach
+        break;
+    }
+    
+    return filtered;
   }
 
-  private calculateExpectedPoints(players: Player[], captain: Player, viceCaptain: Player): number {
-    let totalPoints = players.reduce((sum, p) => sum + p.points, 0);
-    totalPoints += captain.points; // Captain gets 2x points
-    totalPoints += viceCaptain.points * 0.5; // Vice-captain gets 1.5x points
-    return totalPoints;
+  private selectCaptainAndViceCaptain(
+    players: Player[],
+    recommendations: AIPlayerRecommendation[],
+    request: TeamGenerationRequest
+  ): { captain: Player; viceCaptain: Player } {
+    // User preferences first
+    if (request.userPreferences?.captain && request.userPreferences?.viceCaptain) {
+      const captain = players.find(p => p.name === request.userPreferences?.captain) || players[0];
+      const viceCaptain = players.find(p => p.name === request.userPreferences?.viceCaptain) || players[1];
+      return { captain, viceCaptain };
+    }
+    
+    // Sort by captaincy score from recommendations
+    const playersWithScores = players.map(player => {
+      const rec = recommendations.find(r => r.player.id === player.id);
+      return {
+        player,
+        score: rec?.captaincy_score || 0
+      };
+    }).sort((a, b) => b.score - a.score);
+    
+    return {
+      captain: playersWithScores[0]?.player || players[0],
+      viceCaptain: playersWithScores[1]?.player || players[1]
+    };
   }
 
-  private calculateTeamConfidence(recommendations: AIPlayerRecommendation[]): number {
-    if (recommendations.length === 0) return 50;
-    const avgConfidence = recommendations.reduce((sum, r) => sum + r.confidence, 0) / recommendations.length;
-    return Math.round(avgConfidence * 100);
+  private calculateRiskScore(players: Player[], request: TeamGenerationRequest): number {
+    // Calculate team risk based on player selection and credits
+    const totalCredits = players.reduce((sum, p) => sum + (p.credits || 8), 0);
+    const avgCredits = totalCredits / players.length;
+    
+    // Higher average credits = higher risk
+    const creditRisk = (avgCredits - 7) * 10; // Base risk from credits
+    
+    // Strategy-specific risk adjustments
+    let strategyRisk = 0;
+    switch (request.strategy) {
+      case 'differential':
+        strategyRisk = 20;
+        break;
+      case 'core-hedge':
+        strategyRisk = -10;
+        break;
+      case 'stats-driven':
+        strategyRisk = -5;
+        break;
+    }
+    
+    return Math.max(0, Math.min(100, 50 + creditRisk + strategyRisk));
   }
 
-  private generateTeamReasoning(recommendations: AIPlayerRecommendation[], strategy: string): string {
-    if (recommendations.length === 0) return `${strategy} strategy applied with available players.`;
+  private calculateExpectedPoints(players: Player[]): number {
+    return players.reduce((sum, p) => sum + (p.points || 50), 0);
+  }
+
+  private calculateTeamConfidence(players: Player[], recommendations: AIPlayerRecommendation[]): number {
+    const confidenceScores = players.map(player => {
+      const rec = recommendations.find(r => r.player.id === player.id);
+      return rec?.confidence || 70;
+    });
     
-    const topReasons = recommendations
-      .slice(0, 3)
-      .map(r => `${r.player.name}: ${r.reason}`)
-      .join(' ');
+    return Math.round(confidenceScores.reduce((sum, c) => sum + c, 0) / confidenceScores.length);
+  }
+
+  private generateTeamInsights(players: Player[], strategy: string): string[] {
+    const insights: string[] = [];
     
-    return `${strategy} strategy applied. ${topReasons}`;
+    // Role balance insights
+    const composition = Dream11TeamValidator.getTeamComposition(players);
+    insights.push(`Team composition: ${composition.WK} WK, ${composition.BAT} BAT, ${composition.AR} AR, ${composition.BWL} BWL`);
+    
+    // Credit distribution
+    const totalCredits = players.reduce((sum, p) => sum + (p.credits || 8), 0);
+    insights.push(`Total credits used: ${totalCredits}/100`);
+    
+    // Strategy-specific insights
+    switch (strategy) {
+      case 'core-hedge':
+        insights.push('Balanced risk approach with core players and hedge picks');
+        break;
+      case 'differential':
+        insights.push('High-risk, high-reward strategy with differential players');
+        break;
+      case 'stats-driven':
+        insights.push('Data-driven selection based on statistical analysis');
+        break;
+    }
+    
+    return insights;
   }
 
   private generateFallbackResponse(message: string): string {
