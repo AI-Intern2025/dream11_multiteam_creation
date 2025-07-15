@@ -72,6 +72,7 @@ The AI will suggest how to mix high-reward (low credit) and safe picks (high cre
 
 Strategy 5: Stats-Driven Guardrails
 The AI will work with user-defined filters (e.g., selection percentage, Dream Team percentage) to suggest players who meet these criteria, based on form and match conditions.
+
 Strategy 6: Preset Scenarios / Configurations
 AI will adjust player selection based on the preset scenarios (e.g., “High differentials,” “Team A high total, Team B collapse”) and match conditions like pitch/weather.
 

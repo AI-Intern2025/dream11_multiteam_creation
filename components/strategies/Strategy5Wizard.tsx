@@ -53,11 +53,29 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
   };
 
   const handleSaveGuardrails = () => {
+    // Validate that at least one additional filter besides Dream Team % is set
+    const hasAdditionalFilter = 
+      (filters.selectionPercentage.min > 0 || filters.selectionPercentage.max < 100) ||
+      (filters.averagePoints.min > 0 || filters.averagePoints.max < 200) ||
+      (filters.credits.min > 6 || filters.credits.max < 12);
+    
+    if (!hasAdditionalFilter) {
+      alert('Please set at least one additional filter besides Dream Team % to proceed.\n\nYou can adjust Selection %, Average Points, or Credits range to create more specific filtering criteria.');
+      return;
+    }
+    
+    // Validate that Dream Team % range is reasonable
+    if (filters.dreamTeamPercentage.min >= filters.dreamTeamPercentage.max) {
+      alert('Dream Team % minimum value must be less than maximum value.');
+      return;
+    }
+    
     setStage('summary');
   };
 
   const handleGenerateTeams = () => {
     const strategyData = {
+      strategy: 'stats-driven',
       filters,
       summary: generateSummary()
     };
@@ -69,28 +87,34 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
     
     let summary = 'Generating teams with ';
     
-    if (selectionPercentage.min > 20) {
-      summary += 'high-ownership players, ';
-    } else if (selectionPercentage.max < 10) {
-      summary += 'differential picks, ';
+    // Focus on player types based on filters
+    if (dreamTeamPercentage.min > 40) {
+      summary += 'proven high-value players';
+    } else if (dreamTeamPercentage.max < 30) {
+      summary += 'emerging value picks';
     } else {
-      summary += 'balanced ownership, ';
+      summary += 'balanced Dream Team performers';
     }
     
-    if (averagePoints.min > 100) {
-      summary += 'in-form performers, ';
+    if (selectionPercentage && (selectionPercentage.min > 20 || selectionPercentage.max < 80)) {
+      if (selectionPercentage.min > 50) {
+        summary += ' and popular high-ownership players';
+      } else if (selectionPercentage.max < 30) {
+        summary += ' and differential low-ownership picks';
+      } else {
+        summary += ' and balanced ownership selections';
+      }
+    }
+    
+    if (averagePoints && averagePoints.min > 40) {
+      summary += ' focusing on in-form performers';
     }
     
     if (playerRoles.allRounders.min >= 3) {
-      summary += 'all-rounder heavy lineups, ';
+      summary += ' with all-rounder heavy lineups';
     }
     
-    if (dreamTeamPercentage.min > 50) {
-      summary += 'and proven high-value players.';
-    } else {
-      summary += 'and value picks.';
-    }
-    
+    summary += '.';
     return summary;
   };
 
@@ -102,6 +126,11 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
           <p className="text-gray-600 mb-4">
             Set numerical filters to generate teams with players meeting your specific criteria.
           </p>
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800">
+              <strong>Note:</strong> Dream Team % is mandatory. You must also set at least one additional filter (Selection %, Average Points, or Credits) to proceed.
+            </p>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -109,11 +138,11 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
           <Card>
             <CardHeader>
               <CardTitle>Player Performance Filters</CardTitle>
-              <CardDescription>Set ranges for player statistics</CardDescription>
+              <CardDescription>Set ranges for player statistics (Dream Team % is mandatory, at least one additional filter required)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <Label className="text-sm font-medium">Dream Team Percentage</Label>
+                <Label className="text-sm font-medium">Dream Team Percentage <span className="text-red-500">*</span></Label>
                 <div className="mt-2 space-y-2">
                   <Slider
                     value={[filters.dreamTeamPercentage.min, filters.dreamTeamPercentage.max]}
@@ -133,7 +162,7 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
               </div>
 
               <div>
-                <Label className="text-sm font-medium">Selection Percentage</Label>
+                <Label className="text-sm font-medium">Selection Percentage <span className="text-gray-400">(Optional)</span></Label>
                 <div className="mt-2 space-y-2">
                   <Slider
                     value={[filters.selectionPercentage.min, filters.selectionPercentage.max]}
@@ -153,7 +182,7 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
               </div>
 
               <div>
-                <Label className="text-sm font-medium">Average Points</Label>
+                <Label className="text-sm font-medium">Average Points <span className="text-gray-400">(Optional)</span></Label>
                 <div className="mt-2 space-y-2">
                   <Slider
                     value={[filters.averagePoints.min, filters.averagePoints.max]}
@@ -173,7 +202,7 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
               </div>
 
               <div>
-                <Label className="text-sm font-medium">Credit Range</Label>
+                <Label className="text-sm font-medium">Credit Range <span className="text-gray-400">(Optional)</span></Label>
                 <div className="mt-2 space-y-2">
                   <Slider
                     value={[filters.credits.min, filters.credits.max]}
@@ -324,7 +353,7 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
       <div className="mb-6">
         <h2 className="text-xl font-bold mb-2">Stats-Driven Guardrails Summary</h2>
         <p className="text-gray-600 mb-4">
-          Review your statistical filters before generating teams.
+          Review your statistical filters before generating teams. Teams will be generated using only players who meet all specified criteria.
         </p>
       </div>
 

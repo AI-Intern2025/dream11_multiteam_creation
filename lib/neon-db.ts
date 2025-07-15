@@ -36,6 +36,33 @@ export interface Player {
   country: string;
   batting_style: string;
   bowling_style: string;
+  dream_team_percentage?: number; // For Strategy 5 stats filtering
+  
+  // Advanced performance metrics
+  recent_form_rating?: number; // 0-1 scale, last 5 matches
+  consistency_score?: number; // 0-1 scale, low variance = high consistency
+  versatility_score?: number; // 0-1 scale, multi-format adaptability
+  injury_risk_score?: number; // 1-10 scale, 10 = low risk
+  
+  // Venue & conditions performance
+  venue_performance?: number; // 0-1 scale, venue-specific performance
+  pitch_suitability?: number; // 0-1 scale, batting/bowling pitch preference
+  weather_adaptability?: number; // 0-1 scale, weather condition performance
+  
+  // Opposition & matchup data
+  opposition_strength?: number; // 0-1 scale, performance vs strong/weak teams
+  head_to_head_record?: number; // 0-1 scale, H2H performance
+  captain_potential?: number; // 0-1 scale, leadership & clutch performance
+  
+  // Fantasy-specific metrics
+  ownership_projection?: number; // 0-100%, expected ownership
+  price_efficiency?: number; // 0-1 scale, points per credit ratio
+  upset_potential?: number; // 0-1 scale, likelihood of surprise performance
+  
+  // Match-specific data
+  recent_match_points?: number[]; // Last 5 match points
+  match_format_preference?: string; // T20, ODI, Test
+  playing_conditions_preference?: string; // Day, Night, etc.
 }
 
 class NeonDBService {
