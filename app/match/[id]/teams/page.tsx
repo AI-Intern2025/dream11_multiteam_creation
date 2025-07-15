@@ -43,10 +43,19 @@ export default function TeamsPage() {
   } = useTeamGeneration();
   const { data: matchData } = useMatchData(matchId);
 
-  // Handler to trigger teaism generation from wizard
+  // Handler to trigger team generation from wizard
   const onGenerate = async (userPreferences: any, teamCount: number) => {
     setHasGenerated(false);
-    const strategyName = userPreferences?.strategy || strategy || 'strategy1';
+    
+    // For preset scenarios strategy, pass the correct strategy name
+    let strategyName = strategy || 'strategy1';
+    
+    if (strategy === 'strategy6' || strategy === 'preset-scenarios') {
+      strategyName = 'preset-scenarios';
+    }
+    
+    console.log('🚀 Generating teams with strategy:', strategyName, 'preferences:', userPreferences);
+    
     await generateTeams(matchId, strategyName, teamCount, userPreferences);
     setHasGenerated(true);
   };

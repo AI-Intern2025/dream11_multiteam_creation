@@ -4,7 +4,10 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { useMatchData } from '@/hooks/use-cricket-data';
+import { PRESET_CONFIGURATIONS } from '@/lib/preset-configurations';
 
 interface Strategy6WizardProps {
   matchId: string;
@@ -16,84 +19,24 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
   const [teamCount, setTeamCount] = useState(15);
   const [stage, setStage] = useState<'presets' | 'summary'>('presets');
   const [selectedPreset, setSelectedPreset] = useState<string>('');
+  
+  // User input match conditions
+  const [matchConditions, setMatchConditions] = useState({
+    format: 'T20',
+    pitch: 'Flat',
+    weather: 'Clear',
+    venue: 'Dry'
+  });
 
   const matchName = matchData?.match?.team_name || 'Team A vs Team B';
   const [teamAName, teamBName] = matchName.split(' vs ');
 
-  const presetConfigurations = [
-    {
-      id: 'team-a-high-total',
-      name: 'Team A High Total, Team B Collapse',
-      description: `Stack ${teamAName} batsmen and ${teamBName} bowlers`,
-      strategy: 'Expect high scoring from Team A, early wickets for Team B',
-      focus: { teamA: 'batsmen', teamB: 'bowlers' },
-      riskLevel: 'medium',
-      tags: ['batting-pitch', 'one-sided']
-    },
-    {
-      id: 'team-b-high-total',
-      name: 'Team B High Total, Team A Collapse',
-      description: `Stack ${teamBName} batsmen and ${teamAName} bowlers`,
-      strategy: 'Expect high scoring from Team B, early wickets for Team A',
-      focus: { teamA: 'bowlers', teamB: 'batsmen' },
-      riskLevel: 'medium',
-      tags: ['batting-pitch', 'one-sided']
-    },
-    {
-      id: 'high-differentials',
-      name: 'High Differentials Strategy',
-      description: 'Focus on low-ownership, high-upside players',
-      strategy: 'Pick players with <20% ownership but high ceiling',
-      focus: { ownership: 'low', upside: 'high' },
-      riskLevel: 'high',
-      tags: ['differential', 'contrarian', 'high-risk']
-    },
-    {
-      id: 'balanced-roles',
-      name: 'Balanced Roles (4 BAT, 3 BOWL, 2 AR, 1 WK)',
-      description: 'Traditional balanced team composition',
-      strategy: 'Equal weight to all departments',
-      focus: { batsmen: 4, bowlers: 3, allRounders: 2, wicketKeepers: 1 },
-      riskLevel: 'low',
-      tags: ['balanced', 'traditional', 'safe']
-    },
-    {
-      id: 'all-rounder-heavy',
-      name: 'All-Rounder Heavy Lineup',
-      description: 'Stack all-rounders for maximum versatility',
-      strategy: 'Pick 4+ all-rounders for captaincy flexibility',
-      focus: { allRounders: 4, versatility: 'high' },
-      riskLevel: 'medium',
-      tags: ['all-rounders', 'versatile', 'captaincy']
-    },
-    {
-      id: 'top-order-stack',
-      name: 'Top Order Batting Stack',
-      description: 'Focus on openers and #3 batsmen',
-      strategy: 'Stack top 3 batsmen from both teams',
-      focus: { battingOrder: 'top', position: '1-3' },
-      riskLevel: 'medium',
-      tags: ['top-order', 'batting', 'powerplay']
-    },
-    {
-      id: 'bowling-pitch',
-      name: 'Bowling Pitch Special',
-      description: 'Bowler-heavy lineup for seaming/spinning conditions',
-      strategy: 'Pick 5+ bowlers expecting low-scoring game',
-      focus: { bowlers: 5, wickets: 'high' },
-      riskLevel: 'high',
-      tags: ['bowling', 'conditions', 'low-scoring']
-    },
-    {
-      id: 'death-specialists',
-      name: 'Death Overs Specialists',
-      description: 'Focus on players who excel in death overs',
-      strategy: 'Pick finishers and death bowlers',
-      focus: { phase: 'death', specialists: 'high' },
-      riskLevel: 'medium',
-      tags: ['death-overs', 'finishers', 'specialist']
-    }
-  ];
+  // Use imported preset configurations
+  const presetConfigurations = PRESET_CONFIGURATIONS.map(preset => ({
+    ...preset,
+    // Update descriptions to include actual team names
+    description: preset.description.replace('Team A', teamAName).replace('Team B', teamBName)
+  }));
 
   const handleSelectPreset = (presetId: string) => {
     setSelectedPreset(presetId);
@@ -105,15 +48,27 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
 
   const handleGenerateTeams = () => {
     const preset = presetConfigurations.find(p => p.id === selectedPreset);
+    if (!preset) {
+      console.error('No preset selected');
+      return;
+    }
+
     const strategyData = {
-      preset,
+      preset: {
+        id: preset.id,
+        name: preset.name,
+        description: preset.description,
+        strategy: preset.strategy,
+        focus: preset.focus,
+        riskLevel: preset.riskLevel,
+        tags: preset.tags,
+        constraints: preset.constraints
+      },
       teamNames: { teamA: teamAName, teamB: teamBName },
-      matchConditions: {
-        pitch: matchData?.match?.pitch_condition,
-        weather: matchData?.match?.weather_condition,
-        venue: matchData?.match?.venue_condition
-      }
+      matchConditions: matchConditions
     };
+    
+    console.log('🎯 Generating teams with preset strategy:', strategyData);
     onGenerate(strategyData, teamCount);
   };
 
@@ -181,34 +136,91 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
         </div>
 
         <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-          <h3 className="font-semibold text-blue-800 mb-2">Match Conditions:</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+          <h3 className="font-semibold text-blue-800 mb-4">Match Conditions:</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
-              <strong>Pitch:</strong> {matchData?.match?.pitch_condition || 'Unknown'}
+              <Label htmlFor="format" className="text-sm font-medium text-gray-700">Format</Label>
+              <Select value={matchConditions.format} onValueChange={(value) => setMatchConditions({...matchConditions, format: value})}>
+                <SelectTrigger id="format" className="mt-1">
+                  <SelectValue placeholder="Select format" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="T20">T20</SelectItem>
+                  <SelectItem value="ODI">ODI</SelectItem>
+                  <SelectItem value="Test">Test</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+            
             <div>
-              <strong>Weather:</strong> {matchData?.match?.weather_condition || 'Unknown'}
+              <Label htmlFor="pitch" className="text-sm font-medium text-gray-700">Pitch</Label>
+              <Select value={matchConditions.pitch} onValueChange={(value) => setMatchConditions({...matchConditions, pitch: value})}>
+                <SelectTrigger id="pitch" className="mt-1">
+                  <SelectValue placeholder="Select pitch" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Flat">Flat (Batting Friendly)</SelectItem>
+                  <SelectItem value="Green">Green (Bowling Friendly)</SelectItem>
+                  <SelectItem value="Dusty">Dusty (Spin Friendly)</SelectItem>
+                  <SelectItem value="Slow">Slow (Low Bounce)</SelectItem>
+                  <SelectItem value="Bouncy">Bouncy (High Bounce)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+            
             <div>
-              <strong>Venue:</strong> {matchData?.match?.venue_condition || 'Unknown'}
+              <Label htmlFor="weather" className="text-sm font-medium text-gray-700">Weather</Label>
+              <Select value={matchConditions.weather} onValueChange={(value) => setMatchConditions({...matchConditions, weather: value})}>
+                <SelectTrigger id="weather" className="mt-1">
+                  <SelectValue placeholder="Select weather" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Clear">Clear</SelectItem>
+                  <SelectItem value="Cloudy">Cloudy</SelectItem>
+                  <SelectItem value="Overcast">Overcast</SelectItem>
+                  <SelectItem value="Humid">Humid</SelectItem>
+                  <SelectItem value="Windy">Windy</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Label htmlFor="venue" className="text-sm font-medium text-gray-700">Venue</Label>
+              <Select value={matchConditions.venue} onValueChange={(value) => setMatchConditions({...matchConditions, venue: value})}>
+                <SelectTrigger id="venue" className="mt-1">
+                  <SelectValue placeholder="Select venue" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Dry">Dry</SelectItem>
+                  <SelectItem value="Dew">Dew Expected</SelectItem>
+                  <SelectItem value="Indoor">Indoor/Covered</SelectItem>
+                  <SelectItem value="Coastal">Coastal</SelectItem>
+                  <SelectItem value="High-Altitude">High Altitude</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-          <p className="text-xs text-blue-600 mt-2">
+          <p className="text-xs text-blue-600 mt-3">
             AI will adjust the selected preset based on these conditions.
           </p>
         </div>
 
         <div className="mt-6 flex justify-between items-center">
-          <Button variant="outline" onClick={() => window.history.back()}>
-            Back to Match
-          </Button>
-          <Button 
-            onClick={handleSaveConfig}
-            disabled={!selectedPreset}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            Save Configuration
-          </Button>
+          <div className="text-sm text-gray-600">
+            <span className="font-medium">Selected conditions:</span> {matchConditions.format} • {matchConditions.pitch} • {matchConditions.weather} • {matchConditions.venue}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => window.history.back()}>
+              Back to Match
+            </Button>
+            <Button 
+              onClick={handleSaveConfig}
+              disabled={!selectedPreset}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Save Configuration
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -280,16 +292,20 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
                   <h4 className="font-medium text-sm text-gray-700 mb-2">Match Context:</h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
+                      <span>Format:</span>
+                      <span className="font-medium">{matchConditions.format}</span>
+                    </div>
+                    <div className="flex justify-between">
                       <span>Pitch:</span>
-                      <span className="font-medium">{matchData?.match?.pitch_condition || 'Unknown'}</span>
+                      <span className="font-medium">{matchConditions.pitch}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Weather:</span>
-                      <span className="font-medium">{matchData?.match?.weather_condition || 'Unknown'}</span>
+                      <span className="font-medium">{matchConditions.weather}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Venue:</span>
-                      <span className="font-medium">{matchData?.match?.venue_condition || 'Unknown'}</span>
+                      <span className="font-medium">{matchConditions.venue}</span>
                     </div>
                   </div>
                 </div>
@@ -323,7 +339,7 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
           <div className="p-4 bg-gray-50 rounded-lg">
             <h4 className="font-semibold mb-2">AI Strategy Summary:</h4>
             <p className="text-gray-800 italic">
-              &quot;Applying {selectedPresetData?.name} configuration with {teamCount} teams, adjusted for {matchData?.match?.pitch_condition || 'unknown'} pitch and {matchData?.match?.weather_condition || 'unknown'} weather conditions.&quot;
+              &quot;Applying {selectedPresetData?.name} configuration with {teamCount} teams, adjusted for {matchConditions.pitch} pitch and {matchConditions.weather} weather conditions.&quot;
             </p>
           </div>
         </CardContent>
