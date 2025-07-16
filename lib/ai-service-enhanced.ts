@@ -103,6 +103,32 @@ export interface TeamGenerationRequest {
       teamA: string;
       teamB: string;
     };
+    // For Strategy 8 base team + rule-based edits
+    baseTeam?: Player[];
+    optimizationRules?: {
+      primaryParameter: 'dreamTeamPercentage' | 'selectionPercentage' | 'averagePoints';
+      guardrails: {
+        maxPerRole: {
+          batsmen: number;
+          bowlers: number;
+          allRounders: number;
+          wicketKeepers: number;
+        };
+        maxPerTeam: {
+          teamA: number;
+          teamB: number;
+        };
+        minCredits: number;
+        maxCredits: number;
+      };
+      preferences: {
+        bowlingStyle: 'pace-heavy' | 'spin-heavy' | 'balanced';
+        battingOrder: 'top-heavy' | 'middle-heavy' | 'balanced';
+        riskTolerance: 'conservative' | 'medium' | 'aggressive';
+      };
+      editIntensity: 'minor' | 'moderate' | 'major';
+    };
+    summary?: string;
   };
 }
 
@@ -132,7 +158,7 @@ export interface AITeamAnalysis {
   insights?: string[];
 }
 
-class AIService {
+export class AIService {
   private provider: AIProvider;
 
   constructor() {
@@ -348,6 +374,12 @@ class AIService {
       // Handle preset scenarios strategy (Strategy 6)
       if (request.strategy === 'preset-scenarios' && request.userPreferences?.preset) {
         return this.generatePresetScenarioTeams(request);
+      }
+
+      // Handle base team + rule-based edits (Strategy 8)
+      if ((request.strategy === 'base-edit' || request.strategy === 'strategy8' || request.strategy === 'iterative-editing') && 
+          request.userPreferences?.baseTeam && request.userPreferences?.optimizationRules) {
+        return this.generateBaseTeamVariations(request);
       }
 
       const recommendations = await this.generateAIPlayerRecommendations(request.matchId);
@@ -968,9 +1000,20 @@ class AIService {
       viceCaptainIndex = captainCandidates.findIndex(c => c.player.id === differentialSorted[1].player.id);
     }
     
+    const selectedCaptain = captainCandidates[captainIndex]?.player || players[0];
+    const selectedViceCaptain = captainCandidates[viceCaptainIndex]?.player || players[1];
+    
+    // Final safety check - ensure captain and vice-captain are different players
+    if (selectedCaptain.id === selectedViceCaptain.id && players.length > 1) {
+      console.log(`⚠️ ML Captain and vice-captain were same player (${selectedCaptain.name}), forcing different selection`);
+      // Find a different player for vice-captain
+      const alternativeViceCaptain = players.find(p => p.id !== selectedCaptain.id) || players[1];
+      return { captain: selectedCaptain, viceCaptain: alternativeViceCaptain };
+    }
+    
     return {
-      captain: captainCandidates[captainIndex]?.player || players[0],
-      viceCaptain: captainCandidates[viceCaptainIndex]?.player || players[1]
+      captain: selectedCaptain,
+      viceCaptain: selectedViceCaptain
     };
   }
 
@@ -1168,6 +1211,15 @@ class AIService {
     
     const captain = candidatePool[captainIndex]?.player || players[0];
     const viceCaptain = candidatePool[viceCaptainIndex]?.player || players[1];
+    
+    // Final safety check - ensure captain and vice-captain are different players
+    if (captain.id === viceCaptain.id && players.length > 1) {
+      console.log(`⚠️ Captain and vice-captain were same player (${captain.name}), forcing different selection`);
+      // Find a different player for vice-captain
+      const alternativeViceCaptain = players.find(p => p.id !== captain.id) || players[1];
+      console.log(`👑 Team ${teamIndex + 1} Selected: Captain ${captain.name} (${captain.player_role}), Vice-Captain ${alternativeViceCaptain.name} (${alternativeViceCaptain.player_role})`);
+      return { captain, viceCaptain: alternativeViceCaptain };
+    }
     
     console.log(`👑 Team ${teamIndex + 1} Selected: Captain ${captain.name} (${captain.player_role}), Vice-Captain ${viceCaptain.name} (${viceCaptain.player_role})`);
     
@@ -1492,6 +1544,880 @@ class AIService {
       default:
         return rolePlayers;
     }
+  }
+
+  /**
+   * Strategy 8: Base Team + Rule-Based Edits
+   * Generates variations of a user-provided base team using optimization rules
+   */
+  async generateBaseTeamVariations(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
+    try {
+      const { baseTeam, optimizationRules, teamNames } = request.userPreferences!;
+      const teams: AITeamAnalysis[] = [];
+      
+      console.log('🎯 Strategy 8: Generating base team variations', {
+        baseTeamSize: baseTeam?.length,
+        teamCount: request.teamCount,
+        editIntensity: optimizationRules?.editIntensity
+      });
+
+      // Get all available players for swapping
+      let allPlayers: Player[] = [];
+      try {
+        // allPlayers = await neonDB.getPlayingPlayersForMatch(request.matchId);
+        console.warn('⚠️  Database temporarily disabled for testing');
+        // Use mock players for testing instead
+        allPlayers = [
+          { id: 12, name: 'Kane Williamson', full_name: 'Kane Williamson', player_role: 'BAT', credits: 10.5, points: 138, dream_team_percentage: 42, selection_percentage: 38, team_name: 'New Zealand', is_playing_today: true, country: 'NZ', batting_style: 'RHB', bowling_style: 'N/A' },
+          { id: 13, name: 'Ross Taylor', full_name: 'Ross Taylor', player_role: 'BAT', credits: 9.5, points: 86, dream_team_percentage: 28, selection_percentage: 22, team_name: 'New Zealand', is_playing_today: true, country: 'NZ', batting_style: 'RHB', bowling_style: 'N/A' },
+          { id: 14, name: 'Temba Bavuma', full_name: 'Temba Bavuma', player_role: 'BAT', credits: 9.0, points: 78, dream_team_percentage: 25, selection_percentage: 18, team_name: 'South Africa', is_playing_today: true, country: 'SA', batting_style: 'RHB', bowling_style: 'N/A' },
+          { id: 15, name: 'Devon Conway', full_name: 'Devon Conway', player_role: 'WK', credits: 8.5, points: 89, dream_team_percentage: 32, selection_percentage: 24, team_name: 'New Zealand', is_playing_today: true, country: 'NZ', batting_style: 'LHB', bowling_style: 'N/A' },
+          { id: 16, name: 'Faf du Plessis', full_name: 'Faf du Plessis', player_role: 'BAT', credits: 9.5, points: 92, dream_team_percentage: 35, selection_percentage: 28, team_name: 'South Africa', is_playing_today: true, country: 'SA', batting_style: 'RHB', bowling_style: 'N/A' },
+          { id: 17, name: 'Kagiso Rabada', full_name: 'Kagiso Rabada', player_role: 'BWL', credits: 9.0, points: 74, dream_team_percentage: 30, selection_percentage: 25, team_name: 'South Africa', is_playing_today: true, country: 'SA', batting_style: 'RHB', bowling_style: 'RF' },
+          { id: 18, name: 'Trent Boult', full_name: 'Trent Boult', player_role: 'BWL', credits: 8.5, points: 68, dream_team_percentage: 28, selection_percentage: 22, team_name: 'New Zealand', is_playing_today: true, country: 'NZ', batting_style: 'LHB', bowling_style: 'LF' },
+          { id: 19, name: 'Quinton de Kock', full_name: 'Quinton de Kock', player_role: 'WK', credits: 10.0, points: 95, dream_team_percentage: 38, selection_percentage: 35, team_name: 'South Africa', is_playing_today: true, country: 'SA', batting_style: 'LHB', bowling_style: 'N/A' },
+          { id: 20, name: 'Anrich Nortje', full_name: 'Anrich Nortje', player_role: 'BWL', credits: 8.0, points: 62, dream_team_percentage: 22, selection_percentage: 18, team_name: 'South Africa', is_playing_today: true, country: 'SA', batting_style: 'RHB', bowling_style: 'RF' }
+        ];
+      } catch (error) {
+        console.warn('⚠️  Database unavailable, using mock players for testing');
+        // Return mock players for testing when database is unavailable
+        allPlayers = [
+          { id: 12, name: 'Player12', full_name: 'Player12', player_role: 'BAT', credits: 9.0, points: 50, dream_team_percentage: 32, selection_percentage: 20, team_name: 'Team B', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'N/A' },
+          { id: 13, name: 'Player13', full_name: 'Player13', player_role: 'BWL', credits: 8.5, points: 36, dream_team_percentage: 20, selection_percentage: 12, team_name: 'Team A', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'RF' },
+          { id: 14, name: 'Player14', full_name: 'Player14', player_role: 'AR', credits: 9.5, points: 45, dream_team_percentage: 28, selection_percentage: 18, team_name: 'Team B', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'RF' },
+          { id: 15, name: 'Player15', full_name: 'Player15', player_role: 'WK', credits: 8.0, points: 38, dream_team_percentage: 22, selection_percentage: 14, team_name: 'Team A', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'N/A' },
+          { id: 16, name: 'Player16', full_name: 'Player16', player_role: 'BAT', credits: 10.0, points: 42, dream_team_percentage: 26, selection_percentage: 16, team_name: 'Team B', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'N/A' },
+          { id: 17, name: 'Player17', full_name: 'Player17', player_role: 'BWL', credits: 9.0, points: 44, dream_team_percentage: 30, selection_percentage: 19, team_name: 'Team A', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'RF' },
+          { id: 18, name: 'Player18', full_name: 'Player18', player_role: 'AR', credits: 10.5, points: 52, dream_team_percentage: 38, selection_percentage: 25, team_name: 'Team B', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'RF' },
+          { id: 19, name: 'Player19', full_name: 'Player19', player_role: 'BAT', credits: 8.5, points: 34, dream_team_percentage: 18, selection_percentage: 11, team_name: 'Team A', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'N/A' },
+          { id: 20, name: 'Player20', full_name: 'Player20', player_role: 'BWL', credits: 9.0, points: 40, dream_team_percentage: 25, selection_percentage: 15, team_name: 'Team B', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'RF' }
+        ];
+      }
+      
+      // Filter players not in base team for potential swaps
+      const availableForSwap = allPlayers.filter((p: Player) => 
+        !baseTeam?.some((bp: Player) => bp.id === p.id)
+      );
+
+      // Generate variations based on edit intensity
+      for (let i = 0; i < request.teamCount; i++) {
+        const variation = await this.generateSingleBaseTeamVariation(
+          baseTeam!,
+          availableForSwap,
+          optimizationRules!,
+          i,
+          teamNames
+        );
+        teams.push(variation);
+      }
+
+      console.log('✅ Strategy 8: Generated variations', {
+        totalTeams: teams.length,
+        averageCredits: teams.reduce((sum, t) => sum + t.totalCredits, 0) / teams.length
+      });
+
+      return teams;
+    } catch (error) {
+      console.error('❌ Strategy 8: Error generating base team variations:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Generate a single variation of the base team
+   */
+  private async generateSingleBaseTeamVariation(
+    baseTeam: Player[],
+    availableForSwap: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
+    teamIndex: number,
+    teamNames?: { teamA: string; teamB: string }
+  ): Promise<AITeamAnalysis> {
+    // Start with base team
+    let currentTeam = [...baseTeam];
+    
+    // Determine number of edits based on intensity
+    const editCount = this.calculateEditCount(rules!.editIntensity, teamIndex);
+    
+    // Apply edits based on optimization rules
+    currentTeam = await this.applyOptimizationEdits(
+      currentTeam,
+      availableForSwap,
+      rules!,
+      editCount,
+      teamIndex
+    );
+
+    // Validate team composition
+    currentTeam = await this.validateAndFixTeamComposition(currentTeam, availableForSwap, rules!);
+
+    // Select captain and vice-captain
+    const { captain, viceCaptain } = await this.selectCaptainAndViceCaptain(
+      currentTeam,
+      rules!.primaryParameter,
+      teamIndex
+    );
+
+    // Calculate metrics
+    const totalCredits = currentTeam.reduce((sum, p) => sum + (p.credits || 0), 0);
+    const roleBalance = this.calculateTeamRoleBalance(currentTeam);
+    const riskScore = this.calculateBaseTeamRiskScore(currentTeam, rules!);
+    const expectedPoints = this.calculateExpectedPoints(currentTeam);
+    const confidence = this.calculateBaseTeamConfidence(currentTeam, rules!, teamIndex);
+
+    return {
+      players: currentTeam,
+      captain,
+      viceCaptain,
+      totalCredits,
+      roleBalance,
+      riskScore,
+      expectedPoints,
+      confidence,
+      reasoning: this.generateBaseTeamReasoning(currentTeam, baseTeam, rules!, editCount),
+      insights: this.generateBaseTeamInsights(currentTeam, rules!, teamIndex)
+    };
+  }
+
+  /**
+   * Calculate number of edits based on intensity and team index
+   */
+  private calculateEditCount(intensity: 'minor' | 'moderate' | 'major', teamIndex: number): number {
+    const baseEdits = {
+      minor: 1,
+      moderate: 3,
+      major: 5
+    };
+
+    const base = baseEdits[intensity];
+    const variation = Math.floor(teamIndex / 3); // Every 3 teams, increase by 1
+    const editCount = Math.min(base + variation, intensity === 'major' ? 7 : intensity === 'moderate' ? 5 : 3);
+    
+    console.log(`📊 Edit count calculation: ${intensity} intensity, team ${teamIndex} → ${base} base + ${variation} variation = ${editCount} edits`);
+    
+    return editCount;
+  }
+
+  /**
+   * Apply optimization edits to the team with randomization
+   */
+  private async applyOptimizationEdits(
+    team: Player[],
+    availableForSwap: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
+    editCount: number,
+    teamIndex: number
+  ): Promise<Player[]> {
+    let editedTeam = [...team];
+    const editsApplied = [];
+
+    console.log(`🔄 Attempting to apply ${editCount} edits to base team...`);
+
+    // Shuffle available players to add randomization
+    const shuffledAvailable = this.shuffleArray(availableForSwap);
+    console.log(`🎲 Shuffled ${shuffledAvailable.length} available players for variation`);
+
+    // Primary edit strategy
+    for (let i = 0; i < editCount; i++) {
+      const edit = await this.generateSingleEdit(
+        editedTeam,
+        shuffledAvailable,
+        rules!,
+        teamIndex + i,
+        editsApplied
+      );
+
+      if (edit) {
+        editedTeam = edit.newTeam;
+        editsApplied.push(edit);
+      } else {
+        console.log(`⚠️ Could not generate edit ${i + 1}/${editCount}, trying alternative approach`);
+        
+        // Alternative approach: try random swaps with less strict constraints
+        const randomEdit = await this.generateRandomEdit(
+          editedTeam,
+          shuffledAvailable,
+          rules!,
+          editsApplied
+        );
+        
+        if (randomEdit) {
+          editedTeam = randomEdit.newTeam;
+          editsApplied.push(randomEdit);
+          console.log(`✅ Applied random edit: ${randomEdit.oldPlayer.name} → ${randomEdit.newPlayer.name}`);
+        }
+      }
+    }
+
+    console.log(`🔄 Applied ${editsApplied.length}/${editCount} edits to base team:`, 
+      editsApplied.map(e => `${e.oldPlayer.name} → ${e.newPlayer.name}`)
+    );
+
+    return editedTeam;
+  }
+
+  /**
+   * Generate a random edit when systematic approach fails
+   */
+  private async generateRandomEdit(
+    currentTeam: Player[],
+    availableForSwap: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
+    previousEdits: Array<{ oldPlayer: Player; newPlayer: Player; newTeam: Player[] }>
+  ): Promise<{ oldPlayer: Player; newPlayer: Player; newTeam: Player[] } | null> {
+    
+    console.log(`🎲 Attempting random edit as fallback...`);
+    
+    // Get players that haven't been recently edited
+    const candidatesForRemoval = currentTeam.filter(player => 
+      !previousEdits.some(edit => edit.newPlayer.id === player.id)
+    );
+    
+    // Try up to 10 random combinations
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const oldPlayer = candidatesForRemoval[Math.floor(Math.random() * candidatesForRemoval.length)];
+      const newPlayer = availableForSwap[Math.floor(Math.random() * availableForSwap.length)];
+      
+      if (oldPlayer && newPlayer) {
+        const newTeam = currentTeam.map(p => 
+          p.id === oldPlayer.id ? newPlayer : p
+        );
+        
+        // Check if this swap is valid
+        if (await this.validateTeamConstraints(newTeam, rules!)) {
+          console.log(`✅ Random edit successful: ${oldPlayer.name} → ${newPlayer.name}`);
+          return { oldPlayer, newPlayer, newTeam };
+        }
+      }
+    }
+    
+    console.log(`❌ Random edit failed after 10 attempts`);
+    return null;
+  }
+
+  /**
+   * Shuffle array using Fisher-Yates algorithm
+   */
+  private shuffleArray<T>(array: T[]): T[] {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }
+
+  /**
+   * Generate a single edit (player swap) with randomization for diversity
+   */
+  private async generateSingleEdit(
+    currentTeam: Player[],
+    availableForSwap: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
+    variation: number,
+    previousEdits: Array<{ oldPlayer: Player; newPlayer: Player; newTeam: Player[] }>
+  ): Promise<{ oldPlayer: Player; newPlayer: Player; newTeam: Player[] } | null> {
+    
+    console.log(`🔄 Attempting edit ${previousEdits.length + 1} with ${availableForSwap.length} available players`);
+    
+    // Get optimization strategy based on primary parameter
+    const optimizationStrategy = this.getOptimizationStrategy(rules!.primaryParameter, variation);
+    
+    // Find players to potentially replace (exclude players that were just added)
+    const candidatesForRemoval = currentTeam.filter(player => 
+      !previousEdits.some(edit => edit.newPlayer.id === player.id)
+    );
+
+    console.log(`🎯 ${candidatesForRemoval.length} candidates for removal from current team`);
+
+    // Sort by optimization parameter (worst first for replacement)
+    candidatesForRemoval.sort((a, b) => {
+      const scoreA = this.getPlayerOptimizationScore(a, rules!.primaryParameter);
+      const scoreB = this.getPlayerOptimizationScore(b, rules!.primaryParameter);
+      return scoreA - scoreB; // Ascending (worst first)
+    });
+
+    // Add randomization: shuffle the candidates with bias towards worse players
+    const topCandidates = candidatesForRemoval.slice(0, Math.min(6, candidatesForRemoval.length));
+    const shuffledCandidates = this.shuffleArray(topCandidates);
+
+    console.log(`🔄 Trying to replace players in randomized order: ${shuffledCandidates.slice(0, 3).map(p => p.name).join(', ')}`);
+
+    // Try to find a suitable replacement
+    for (const oldPlayer of shuffledCandidates) {
+      console.log(`🔄 Trying to replace ${oldPlayer.name} (${oldPlayer.player_role}, ${oldPlayer.credits} cr)`);
+      
+      const replacement = await this.findBestReplacement(
+        oldPlayer,
+        currentTeam,
+        availableForSwap,
+        rules!,
+        optimizationStrategy,
+        variation // Pass variation for randomization
+      );
+
+      if (replacement) {
+        console.log(`✅ Found replacement: ${oldPlayer.name} → ${replacement.name}`);
+        const newTeam = currentTeam.map(p => 
+          p.id === oldPlayer.id ? replacement : p
+        );
+
+        // Validate the swap maintains team constraints
+        if (await this.validateTeamConstraints(newTeam, rules!)) {
+          console.log(`✅ Swap validated successfully`);
+          return { oldPlayer, newPlayer: replacement, newTeam };
+        } else {
+          console.log(`❌ Swap failed validation`);
+        }
+      } else {
+        console.log(`❌ No suitable replacement found for ${oldPlayer.name}`);
+      }
+    }
+
+    console.log(`❌ No valid edits found in this attempt`);
+    return null;
+  }
+
+  /**
+   * Find the best replacement for a player with randomization for diversity
+   */
+  private async findBestReplacement(
+    oldPlayer: Player,
+    currentTeam: Player[],
+    availableForSwap: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
+    optimizationStrategy: string,
+    variation: number
+  ): Promise<Player | null> {
+    
+    console.log(`🔍 Finding replacement for ${oldPlayer.name} (${oldPlayer.player_role}) from ${availableForSwap.length} available players`);
+    
+    // Get current team composition
+    const currentRoleBalance = this.calculateTeamRoleBalance(currentTeam);
+    const oldRole = this.getPlayerRole(oldPlayer.player_role);
+    
+    // Get set of current team player IDs to exclude them from selection
+    const currentTeamIds = new Set(currentTeam.map(p => p.id));
+    
+    // Filter candidates by role and exclude players already in current team
+    const candidates = availableForSwap.filter(player => {
+      // First check: exclude players already in current team
+      if (currentTeamIds.has(player.id)) {
+        console.log(`❌ Excluding ${player.name} - already in current team`);
+        return false;
+      }
+      
+      const newRole = this.getPlayerRole(player.player_role);
+      
+      // Primary preference: same role
+      if (oldRole === newRole) {
+        return true;
+      }
+      
+      // Secondary preference: allow all-rounders to replace any non-WK role
+      if (newRole === 'allRounders' && oldRole !== 'wicketKeepers') {
+        return true;
+      }
+      
+      // Allow any role to replace all-rounders (except if it violates constraints)
+      if (oldRole === 'allRounders') {
+        return true;
+      }
+      
+      // Allow batsmen and bowlers to be interchangeable if team balance permits
+      if ((oldRole === 'batsmen' && newRole === 'bowlers') || 
+          (oldRole === 'bowlers' && newRole === 'batsmen')) {
+        return true;
+      }
+      
+      return false;
+    });
+
+    console.log(`🎯 ${candidates.length} role-compatible candidates found`);
+
+    if (candidates.length === 0) {
+      console.log(`❌ No role-compatible candidates for ${oldPlayer.name}`);
+      return null;
+    }
+
+    // Filter by credit constraints
+    const currentCredits = currentTeam.reduce((sum, p) => sum + (p.credits || 0), 0);
+    const budgetAfterRemoval = currentCredits - (oldPlayer.credits || 0);
+    
+    const affordableCandidates = candidates.filter(player => {
+      const newTotal = budgetAfterRemoval + (player.credits || 0);
+      return newTotal >= rules!.guardrails.minCredits && newTotal <= rules!.guardrails.maxCredits;
+    });
+
+    console.log(`💰 ${affordableCandidates.length} affordable candidates (budget: ${budgetAfterRemoval.toFixed(1)} + player credits must be ${rules!.guardrails.minCredits}-${rules!.guardrails.maxCredits})`);
+
+    if (affordableCandidates.length === 0) {
+      console.log(`❌ No affordable candidates for ${oldPlayer.name}`);
+      return null;
+    }
+
+    // Sort by optimization score
+    affordableCandidates.sort((a, b) => {
+      const scoreA = this.getPlayerOptimizationScore(a, rules!.primaryParameter);
+      const scoreB = this.getPlayerOptimizationScore(b, rules!.primaryParameter);
+      return scoreB - scoreA; // Descending (best first)
+    });
+
+    console.log(`📊 Top 3 candidates by ${rules!.primaryParameter}: ${affordableCandidates.slice(0, 3).map(p => `${p.name} (${this.getPlayerOptimizationScore(p, rules!.primaryParameter)})`).join(', ')}`);
+
+    // Add randomization to candidate selection based on variation
+    const selectedPlayer = this.applyOptimizationStrategy(
+      affordableCandidates,
+      rules!,
+      optimizationStrategy,
+      variation
+    );
+
+    console.log(`✅ Selected: ${selectedPlayer?.name || 'None'}`);
+    return selectedPlayer;
+  }
+
+  /**
+   * Get optimization strategy based on primary parameter and variation with randomization
+   */
+  private getOptimizationStrategy(
+    primaryParameter: 'dreamTeamPercentage' | 'selectionPercentage' | 'averagePoints',
+    variation: number
+  ): string {
+    const strategies = {
+      dreamTeamPercentage: ['elite-performers', 'consistent-picks', 'value-finds'],
+      selectionPercentage: ['low-ownership', 'balanced-ownership', 'popular-picks'],
+      averagePoints: ['form-based', 'season-average', 'recent-performance']
+    };
+
+    const strategyList = strategies[primaryParameter];
+    
+    // Add some randomization to strategy selection
+    const baseStrategy = strategyList[variation % strategyList.length];
+    const randomOffset = Math.floor(variation / 3) % strategyList.length;
+    const finalStrategyIndex = (strategyList.indexOf(baseStrategy) + randomOffset) % strategyList.length;
+    
+    return strategyList[finalStrategyIndex];
+  }
+
+  /**
+   * Get player optimization score based on parameter
+   */
+  private getPlayerOptimizationScore(
+    player: Player,
+    parameter: 'dreamTeamPercentage' | 'selectionPercentage' | 'averagePoints'
+  ): number {
+    switch (parameter) {
+      case 'dreamTeamPercentage':
+        return player.dream_team_percentage || 0;
+      case 'selectionPercentage':
+        return player.selection_percentage || 0;
+      case 'averagePoints':
+        return player.points || 0;
+      default:
+        return 0;
+    }
+  }
+
+  /**
+   * Apply optimization strategy to candidate selection with randomization
+   */
+  private applyOptimizationStrategy(
+    candidates: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
+    strategy: string,
+    variation: number = 0
+  ): Player | null {
+    if (candidates.length === 0) return null;
+
+    // Apply strategy-specific logic
+    switch (strategy) {
+      case 'elite-performers':
+        // Add randomization: pick from top 3 performers instead of always the best
+        const topPerformers = candidates.slice(0, Math.min(3, candidates.length));
+        const performerIndex = variation % topPerformers.length;
+        return topPerformers[performerIndex];
+      
+      case 'value-finds':
+        // Find best points per credit ratio
+        candidates.sort((a, b) => {
+          const ratioA = (a.points || 0) / (a.credits || 1);
+          const ratioB = (b.points || 0) / (b.credits || 1);
+          return ratioB - ratioA;
+        });
+        // Add randomization: pick from top value picks
+        const topValues = candidates.slice(0, Math.min(3, candidates.length));
+        const valueIndex = variation % topValues.length;
+        return topValues[valueIndex];
+      
+      case 'low-ownership':
+        // Prefer players with lower selection percentage
+        candidates.sort((a, b) => 
+          (a.selection_percentage || 0) - (b.selection_percentage || 0)
+        );
+        // Add randomization: pick from top low-ownership players
+        const lowOwnership = candidates.slice(0, Math.min(3, candidates.length));
+        const ownershipIndex = variation % lowOwnership.length;
+        return lowOwnership[ownershipIndex];
+      
+      case 'form-based':
+        // Prefer players with recent good form
+        candidates.sort((a, b) => {
+          const formA = this.calculateRecentForm(a);
+          const formB = this.calculateRecentForm(b);
+          return formB - formA;
+        });
+        // Add randomization: pick from top form players
+        const topForm = candidates.slice(0, Math.min(3, candidates.length));
+        const formIndex = variation % topForm.length;
+        return topForm[formIndex];
+      
+      default:
+        // Default randomization: pick from top candidates
+        const topCandidates = candidates.slice(0, Math.min(3, candidates.length));
+        const randomIndex = variation % topCandidates.length;
+        return topCandidates[randomIndex];
+    }
+  }
+
+  /**
+   * Calculate recent form score for a player
+   */
+  private calculateRecentForm(player: Player): number {
+    // Use a combination of recent points and consistency
+    const baseScore = player.points || 0;
+    const consistency = 1 - (player.selection_percentage || 0) / 100; // Lower ownership = higher uniqueness
+    return baseScore * (1 + consistency * 0.2);
+  }
+
+  /**
+   * Validate team constraints after edit
+   */
+  private async validateTeamConstraints(
+    team: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules']
+  ): Promise<boolean> {
+    console.log(`🔍 Validating team constraints...`);
+    
+    // Check role constraints
+    const roleBalance = this.calculateTeamRoleBalance(team);
+    console.log(`📊 Role balance: BAT=${roleBalance.batsmen}/${rules!.guardrails.maxPerRole.batsmen}, BWL=${roleBalance.bowlers}/${rules!.guardrails.maxPerRole.bowlers}, AR=${roleBalance.allRounders}/${rules!.guardrails.maxPerRole.allRounders}, WK=${roleBalance.wicketKeepers}/${rules!.guardrails.maxPerRole.wicketKeepers}`);
+    
+    if (roleBalance.batsmen > rules!.guardrails.maxPerRole.batsmen) {
+      console.log(`❌ Too many batsmen: ${roleBalance.batsmen} > ${rules!.guardrails.maxPerRole.batsmen}`);
+      return false;
+    }
+    if (roleBalance.bowlers > rules!.guardrails.maxPerRole.bowlers) {
+      console.log(`❌ Too many bowlers: ${roleBalance.bowlers} > ${rules!.guardrails.maxPerRole.bowlers}`);
+      return false;
+    }
+    if (roleBalance.allRounders > rules!.guardrails.maxPerRole.allRounders) {
+      console.log(`❌ Too many all-rounders: ${roleBalance.allRounders} > ${rules!.guardrails.maxPerRole.allRounders}`);
+      return false;
+    }
+    if (roleBalance.wicketKeepers > rules!.guardrails.maxPerRole.wicketKeepers) {
+      console.log(`❌ Too many wicket-keepers: ${roleBalance.wicketKeepers} > ${rules!.guardrails.maxPerRole.wicketKeepers}`);
+      return false;
+    }
+
+    // Check credit constraints
+    const totalCredits = team.reduce((sum, p) => sum + (p.credits || 0), 0);
+    console.log(`💰 Total credits: ${totalCredits.toFixed(1)} (range: ${rules!.guardrails.minCredits}-${rules!.guardrails.maxCredits})`);
+    
+    if (totalCredits < rules!.guardrails.minCredits) {
+      console.log(`❌ Credits too low: ${totalCredits.toFixed(1)} < ${rules!.guardrails.minCredits}`);
+      return false;
+    }
+    if (totalCredits > rules!.guardrails.maxCredits) {
+      console.log(`❌ Credits too high: ${totalCredits.toFixed(1)} > ${rules!.guardrails.maxCredits}`);
+      return false;
+    }
+
+    // Check team split constraints
+    const teamCounts = this.calculateTeamSplit(team);
+    console.log(`🏏 Team split: ${Object.entries(teamCounts).map(([team, count]) => `${team}=${count}`).join(', ')}`);
+    
+    for (const [teamName, count] of Object.entries(teamCounts)) {
+      if (count > 7) {
+        console.log(`❌ Too many players from ${teamName}: ${count} > 7`);
+        return false;
+      }
+    }
+
+    // Ensure at least 1 wicket keeper
+    if (roleBalance.wicketKeepers === 0) {
+      console.log(`❌ No wicket keeper in team`);
+      return false;
+    }
+
+    console.log(`✅ Team constraints validation passed`);
+    return true;
+  }
+
+  /**
+   * Calculate team split (players per team)
+   */
+  private calculateTeamSplit(team: Player[]): Record<string, number> {
+    const teamCounts: Record<string, number> = {};
+    team.forEach(player => {
+      const teamName = player.team_name || 'Unknown';
+      teamCounts[teamName] = (teamCounts[teamName] || 0) + 1;
+    });
+    return teamCounts;
+  }
+
+  /**
+   * Validate and fix team composition if needed
+   */
+  private async validateAndFixTeamComposition(
+    team: Player[],
+    availableForSwap: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules']
+  ): Promise<Player[]> {
+    let fixedTeam = [...team];
+    
+    // Ensure we have exactly 11 players
+    if (fixedTeam.length > 11) {
+      fixedTeam = fixedTeam.slice(0, 11);
+    }
+    
+    // Ensure we have at least 1 wicket keeper
+    const hasWicketKeeper = fixedTeam.some(p => 
+      this.getPlayerRole(p.player_role) === 'wicketKeepers'
+    );
+    
+    if (!hasWicketKeeper) {
+      // Find a wicket keeper to add
+      const wicketKeeper = availableForSwap.find(p => 
+        this.getPlayerRole(p.player_role) === 'wicketKeepers'
+      );
+      
+      if (wicketKeeper) {
+        // Replace the worst performer
+        const worstPerformer = fixedTeam.reduce((worst, current) => 
+          this.getPlayerOptimizationScore(current, rules!.primaryParameter) < 
+          this.getPlayerOptimizationScore(worst, rules!.primaryParameter) ? current : worst
+        );
+        
+        fixedTeam = fixedTeam.map(p => 
+          p.id === worstPerformer.id ? wicketKeeper : p
+        );
+      }
+    }
+
+    return fixedTeam;
+  }
+
+  /**
+   * Select captain and vice-captain based on optimization parameter
+   */
+  private async selectCaptainAndViceCaptain(
+    team: Player[],
+    primaryParameter: 'dreamTeamPercentage' | 'selectionPercentage' | 'averagePoints',
+    teamIndex: number
+  ): Promise<{ captain: Player; viceCaptain: Player }> {
+    
+    if (team.length < 2) {
+      console.error('❌ Team has less than 2 players, cannot select captain and vice-captain');
+      return {
+        captain: team[0] || { id: 0, name: 'Unknown Captain', player_role: 'BAT' } as Player,
+        viceCaptain: team[0] || { id: 0, name: 'Unknown Vice-Captain', player_role: 'BAT' } as Player
+      };
+    }
+
+    // Sort by optimization score
+    const sortedByScore = [...team].sort((a, b) => {
+      const scoreA = this.getPlayerOptimizationScore(a, primaryParameter);
+      const scoreB = this.getPlayerOptimizationScore(b, primaryParameter);
+      return scoreB - scoreA;
+    });
+
+    // Add some variation based on team index but ensure different players
+    let captainIndex = teamIndex % Math.min(3, sortedByScore.length);
+    let viceCaptainIndex = (teamIndex + 1) % Math.min(3, sortedByScore.length);
+
+    // Ensure captain and vice-captain are different
+    if (captainIndex === viceCaptainIndex) {
+      if (sortedByScore.length > 1) {
+        viceCaptainIndex = (captainIndex + 1) % sortedByScore.length;
+      }
+    }
+
+    const captain = sortedByScore[captainIndex];
+    const viceCaptain = sortedByScore[viceCaptainIndex];
+
+    // Final safety check - if still same player, force different selection
+    if (captain.id === viceCaptain.id && sortedByScore.length > 1) {
+      console.log(`⚠️ Captain and vice-captain were same player (${captain.name}), forcing different selection`);
+      return {
+        captain: sortedByScore[0],
+        viceCaptain: sortedByScore[1]
+      };
+    }
+
+    console.log(`✅ Team ${teamIndex + 1} Captain: ${captain.name} (${captain.player_role}), Vice-Captain: ${viceCaptain.name} (${viceCaptain.player_role})`);
+    return { captain, viceCaptain };
+  }
+
+  /**
+   * Calculate risk score for base team variation
+   */
+  private calculateBaseTeamRiskScore(
+    team: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules']
+  ): number {
+    const riskFactors = {
+      conservative: 0.3,
+      medium: 0.5,
+      aggressive: 0.7
+    };
+
+    const baseRisk = riskFactors[rules!.preferences.riskTolerance];
+    
+    // Adjust based on edit intensity
+    const intensityMultiplier = {
+      minor: 1.0,
+      moderate: 1.2,
+      major: 1.4
+    };
+
+    return Math.min(baseRisk * intensityMultiplier[rules!.editIntensity], 1.0);
+  }
+
+  /**
+   * Calculate confidence for base team variation
+   */
+  private calculateBaseTeamConfidence(
+    team: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
+    teamIndex: number
+  ): number {
+    // Base confidence starts high since user selected the base team
+    let confidence = 85;
+
+    // Adjust based on optimization parameter alignment
+    const avgOptimizationScore = team.reduce((sum, p) => 
+      sum + this.getPlayerOptimizationScore(p, rules!.primaryParameter), 0
+    ) / team.length;
+
+    // Normalize score to 0-15 range
+    const normalizedScore = Math.min(avgOptimizationScore / 10, 1.5) * 10;
+    confidence += normalizedScore;
+
+    // Adjust based on edit intensity (more edits = slightly lower confidence)
+    const intensityAdjustment = {
+      minor: 0,
+      moderate: -3,
+      major: -5
+    };
+    confidence += intensityAdjustment[rules!.editIntensity];
+
+    // Add slight variation between teams
+    confidence += (teamIndex % 5) - 2;
+
+    return Math.max(Math.min(confidence, 95), 70);
+  }
+
+  /**
+   * Generate reasoning for base team variation
+   */
+  private generateBaseTeamReasoning(
+    finalTeam: Player[],
+    originalTeam: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
+    editCount: number
+  ): string {
+    const changedPlayers = finalTeam.filter(p => 
+      !originalTeam.some(op => op.id === p.id)
+    );
+
+    if (changedPlayers.length === 0) {
+      return `Maintained original base team composition optimized for ${rules!.primaryParameter.replace(/([A-Z])/g, ' $1').toLowerCase()}.`;
+    }
+
+    const changesList = changedPlayers.map(p => p.name).join(', ');
+    const intensityDesc = {
+      minor: 'minimal adjustments',
+      moderate: 'strategic changes',
+      major: 'comprehensive optimization'
+    };
+
+    return `Applied ${intensityDesc[rules!.editIntensity]} with ${editCount} edits. Key additions: ${changesList}. Optimized for ${rules!.primaryParameter.replace(/([A-Z])/g, ' $1').toLowerCase()} with ${rules!.preferences.riskTolerance} risk tolerance.`;
+  }
+
+  /**
+   * Generate insights for base team variation
+   */
+  private generateBaseTeamInsights(
+    team: Player[],
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
+    teamIndex: number
+  ): string[] {
+    const insights: string[] = [];
+
+    // Role balance insight
+    const roleBalance = this.calculateTeamRoleBalance(team);
+    insights.push(`Role composition: ${roleBalance.batsmen} BAT, ${roleBalance.bowlers} BWL, ${roleBalance.allRounders} AR, ${roleBalance.wicketKeepers} WK`);
+
+    // Credit utilization insight
+    const totalCredits = team.reduce((sum, p) => sum + (p.credits || 0), 0);
+    const creditUtilization = (totalCredits / rules!.guardrails.maxCredits) * 100;
+    insights.push(`Credit utilization: ${creditUtilization.toFixed(1)}% (${totalCredits.toFixed(1)}/${rules!.guardrails.maxCredits})`);
+
+    // Optimization parameter insight
+    const avgScore = team.reduce((sum, p) => 
+      sum + this.getPlayerOptimizationScore(p, rules!.primaryParameter), 0
+    ) / team.length;
+    insights.push(`Average ${rules!.primaryParameter.replace(/([A-Z])/g, ' $1').toLowerCase()}: ${avgScore.toFixed(1)}`);
+
+    // Team split insight
+    const teamSplit = this.calculateTeamSplit(team);
+    const teamSplitDesc = Object.entries(teamSplit)
+      .map(([team, count]) => `${team}: ${count}`)
+      .join(', ');
+    insights.push(`Team distribution: ${teamSplitDesc}`);
+
+    // Strategy-specific insight
+    const strategyInsight = this.getStrategySpecificInsight(rules!, teamIndex);
+    if (strategyInsight) {
+      insights.push(strategyInsight);
+    }
+
+    return insights;
+  }
+
+  /**
+   * Get strategy-specific insight
+   */
+  private getStrategySpecificInsight(
+    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
+    teamIndex: number
+  ): string | null {
+    const strategy = this.getOptimizationStrategy(rules!.primaryParameter, teamIndex);
+    
+    switch (strategy) {
+      case 'elite-performers':
+        return 'Focused on top-tier performers with proven track records';
+      case 'value-finds':
+        return 'Optimized for best points-per-credit value picks';
+      case 'low-ownership':
+        return 'Targeting differential picks with lower ownership';
+      case 'form-based':
+        return 'Prioritizing players with recent strong performances';
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Get player role from role string
+   */
+  private getPlayerRole(role: string): 'batsmen' | 'bowlers' | 'allRounders' | 'wicketKeepers' {
+    if (role.includes('BAT')) return 'batsmen';
+    if (role.includes('BWL')) return 'bowlers';
+    if (role.includes('AR')) return 'allRounders';
+    if (role.includes('WK')) return 'wicketKeepers';
+    return 'allRounders';
   }
 }
 
