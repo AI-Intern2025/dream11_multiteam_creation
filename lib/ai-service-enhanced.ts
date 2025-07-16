@@ -103,6 +103,29 @@ export interface TeamGenerationRequest {
       teamA: string;
       teamB: string;
     };
+    // For Strategy 7 role-split lineups
+    roleSplitConfig?: {
+      // Batting order split
+      topOrderBatsmen: number;    // Positions 1-3
+      middleOrderBatsmen: number; // Positions 4-6
+      lowerOrderBatsmen: number;  // Positions 7-11
+      
+      // Bowling type split
+      spinners: number;
+      pacers: number;
+      
+      // General role requirements
+      wicketKeepers: number;
+      allRounders: number;
+      
+      // Team generation settings
+      teamCount: number;
+      
+      // Advanced options
+      prioritizeForm: boolean;
+      balanceCredits: boolean;
+      diversityLevel: 'low' | 'medium' | 'high';
+    };
     // For Strategy 8 base team + rule-based edits
     baseTeam?: Player[];
     optimizationRules?: {
@@ -376,6 +399,11 @@ export class AIService {
         return this.generatePresetScenarioTeams(request);
       }
 
+      // Handle role-split lineups strategy (Strategy 7)
+      if (request.strategy === 'role-split' && request.userPreferences?.roleSplitConfig) {
+        return this.generateRoleSplitTeams(request);
+      }
+
       // Handle base team + rule-based edits (Strategy 8)
       if ((request.strategy === 'base-edit' || request.strategy === 'strategy8' || request.strategy === 'iterative-editing') && 
           request.userPreferences?.baseTeam && request.userPreferences?.optimizationRules) {
@@ -496,7 +524,7 @@ export class AIService {
       totalCredits,
       roleBalance,
       riskScore: this.calculateRiskScore(selectedPlayers, request),
-      expectedPoints: this.calculateExpectedPoints(selectedPlayers),
+      expectedPoints: this.calculateExpectedPoints(selectedPlayers, captain, viceCaptain),
       confidence: this.calculateTeamConfidence(selectedPlayers, recommendations),
       insights: this.generateTeamInsights(selectedPlayers, request.strategy)
     };
@@ -732,9 +760,9 @@ export class AIService {
       captain,
       viceCaptain,
       totalCredits: selectedPlayers.reduce((sum, p) => sum + (p.credits || 8), 0),
-      roleBalance: this.calculateTeamRoleBalance(selectedPlayers),
+      roleBalance: this.calculateRoleBalance(selectedPlayers),
       riskScore: this.calculateRiskScore(selectedPlayers, request),
-      expectedPoints: this.calculateExpectedPoints(selectedPlayers),
+      expectedPoints: this.calculateExpectedPoints(selectedPlayers, captain, viceCaptain),
       confidence: this.calculateTeamConfidence(selectedPlayers, recommendations),
       insights,
       reasoning: `Core-hedge team ${teamIndex + 1} with ${coreCount}/${hedgeCount}/${diffCount} core/hedge/diff split`
@@ -906,7 +934,7 @@ export class AIService {
     
     // Calculate final team stats
     const totalCredits = optimization.teamComposition.reduce((sum, p) => sum + (p.credits || 8), 0);
-    const roleBalance = this.calculateTeamRoleBalance(optimization.teamComposition);
+    const roleBalance = this.calculateRoleBalance(optimization.teamComposition);
     
     // Generate insights
     const insights = [
@@ -1128,292 +1156,550 @@ export class AIService {
     }
   }
 
-  private applyStrategyFiltering(
-    recommendations: AIPlayerRecommendation[],
-    request: TeamGenerationRequest,
-    teamIndex: number
-  ): AIPlayerRecommendation[] {
-    // TODO: Implement strategy-specific filtering
-    return recommendations;
+  private async generateRoleSplitTeams(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
+    const { roleSplitConfig, teamNames } = request.userPreferences!;
+    
+    if (!roleSplitConfig || !teamNames) {
+      throw new Error('Invalid role-split data: need role configuration and team names');
+    }
+
+    console.log(`🎯 Generating role-split teams with configuration: ${JSON.stringify(roleSplitConfig)}`);
+
+    try {
+      // Get match and player data
+      const match = await neonDB.getMatchById(request.matchId);
+      if (!match) {
+        throw new Error(`Match not found: ${request.matchId}`);
+      }
+
+      const players = await neonDB.getPlayingPlayersForMatch(request.matchId);
+      console.log(`📊 Found ${players.length} players for match ${request.matchId}`);
+      
+      if (players.length === 0) {
+        throw new Error(`No players found for match ${request.matchId}`);
+      }
+
+      const teams: AITeamAnalysis[] = [];
+
+      // Generate teams based on role-split configuration
+      for (let i = 0; i < roleSplitConfig.teamCount; i++) {
+        const team = await this.generateRoleSplitTeam(
+          roleSplitConfig,
+          players,
+          match,
+          request,
+          i,
+          teams // Pass existing teams for diversity
+        );
+        teams.push(team);
+      }
+
+      return teams;
+    } catch (error) {
+      console.error('Error generating role-split teams:', error);
+      // Fallback to regular team generation
+      const recommendations = await this.generateAIPlayerRecommendations(request.matchId);
+      const teams: AITeamAnalysis[] = [];
+
+      for (let i = 0; i < request.teamCount; i++) {
+        const team = await this.generateSingleTeam(recommendations, request, i);
+        teams.push(team);
+      }
+
+      return teams;
+    }
   }
 
-  private forceVariedCaptainSelection(
+  private async generateRoleSplitTeam(
+    config: any,
     players: Player[],
-    recommendations: AIPlayerRecommendation[],
+    match: Match,
     request: TeamGenerationRequest,
-    teamIndex: number
-  ): { captain: Player; viceCaptain: Player } {
-    console.log(`🎯 Forcing varied captain selection for team ${teamIndex + 1}`);
-    
-    // Get all players with their captaincy scores
-    const playersWithScores = players.map(player => {
-      const rec = recommendations.find(r => r.player.id === player.id);
-      const baseScore = rec?.captaincy_score || (player.points || 0) + (player.credits || 0) * 2;
-      return { 
-        player, 
-        score: baseScore,
-        role: player.player_role || 'BAT'
-      };
-    });
+    teamIndex: number,
+    existingTeams: AITeamAnalysis[]
+  ): Promise<AITeamAnalysis> {
+    console.log(`🏏 Generating role-split team ${teamIndex + 1} with diversity consideration`);
 
-    // Sort by score
-    playersWithScores.sort((a, b) => b.score - a.score);
+    let attempts = 0;
+    const maxAttempts = config.diversityLevel === 'high' ? 50 : config.diversityLevel === 'medium' ? 30 : 10;
+    let bestTeam: AITeamAnalysis | null = null;
+    let bestDiversityScore = -1;
 
-    // Prefer batsmen and all-rounders for captaincy, but allow flexibility
-    const captainCandidates = playersWithScores.filter(p => 
-      p.role === 'BAT' || p.role === 'AR' || p.role === 'WK'
-    );
-    
-    // If no batsmen/all-rounders, use top performers from any role
-    const candidatePool = captainCandidates.length >= 2 ? captainCandidates : playersWithScores;
-    
-    console.log(`👑 Captain candidates: ${candidatePool.map(c => c.player.name).join(', ')}`);
-    
-    // AGGRESSIVE C/VC VARIATION: Use different algorithms for different teams
-    let captainIndex = 0;
-    let viceCaptainIndex = 1;
-    
-    if (candidatePool.length >= 2) {
-      const poolSize = Math.min(candidatePool.length, 8); // Use top 8 candidates max
+    while (attempts < maxAttempts) {
+      attempts++;
       
-      if (teamIndex % 6 === 0) {
-        // Team 1, 7, 13... - Top performer as captain, 2nd as VC
-        captainIndex = 0;
-        viceCaptainIndex = 1;
-      } else if (teamIndex % 6 === 1) {
-        // Team 2, 8, 14... - 2nd as captain, 3rd as VC
-        captainIndex = Math.min(1, poolSize - 1);
-        viceCaptainIndex = Math.min(2, poolSize - 1);
-      } else if (teamIndex % 6 === 2) {
-        // Team 3, 9, 15... - 3rd as captain, 1st as VC
-        captainIndex = Math.min(2, poolSize - 1);
-        viceCaptainIndex = 0;
-      } else if (teamIndex % 6 === 3) {
-        // Team 4, 10, 16... - 1st as captain, 4th as VC
-        captainIndex = 0;
-        viceCaptainIndex = Math.min(3, poolSize - 1);
-      } else if (teamIndex % 6 === 4) {
-        // Team 5, 11, 17... - 4th as captain, 2nd as VC
-        captainIndex = Math.min(3, poolSize - 1);
-        viceCaptainIndex = 1;
-      } else {
-        // Team 6, 12, 18... - Use seeded random selection
-        const seed = teamIndex * 997;
-        captainIndex = Math.abs(seed) % poolSize;
-        viceCaptainIndex = Math.abs(seed * 31 + 17) % poolSize;
-        
-        // Ensure different captain and vice-captain
-        if (captainIndex === viceCaptainIndex) {
-          viceCaptainIndex = (viceCaptainIndex + 1) % poolSize;
-        }
+      // Generate candidate team
+      const candidateTeam = await this.buildRoleSplitTeam(config, players, match, request, teamIndex + attempts);
+      
+      // Calculate diversity score if we have existing teams
+      const diversityScore = this.calculateTeamDiversityScore(candidateTeam, existingTeams);
+      
+      if (diversityScore >= 25.0 || existingTeams.length === 0) {
+        console.log(`✅ Role-split team ${teamIndex + 1} meets diversity requirement (${diversityScore.toFixed(2)}%)`);
+        return candidateTeam;
+      }
+
+      if (diversityScore > bestDiversityScore) {
+        bestDiversityScore = diversityScore;
+        bestTeam = candidateTeam;
       }
     }
-    
-    const captain = candidatePool[captainIndex]?.player || players[0];
-    const viceCaptain = candidatePool[viceCaptainIndex]?.player || players[1];
-    
-    // Final safety check - ensure captain and vice-captain are different players
-    if (captain.id === viceCaptain.id && players.length > 1) {
-      console.log(`⚠️ Captain and vice-captain were same player (${captain.name}), forcing different selection`);
-      // Find a different player for vice-captain
-      const alternativeViceCaptain = players.find(p => p.id !== captain.id) || players[1];
-      console.log(`👑 Team ${teamIndex + 1} Selected: Captain ${captain.name} (${captain.player_role}), Vice-Captain ${alternativeViceCaptain.name} (${alternativeViceCaptain.player_role})`);
-      return { captain, viceCaptain: alternativeViceCaptain };
-    }
-    
-    console.log(`👑 Team ${teamIndex + 1} Selected: Captain ${captain.name} (${captain.player_role}), Vice-Captain ${viceCaptain.name} (${viceCaptain.player_role})`);
-    
-    return { captain, viceCaptain };
+
+    return bestTeam || await this.buildRoleSplitTeam(config, players, match, request, teamIndex);
   }
 
-  /**
-   * Select captains from players who passed the statistical filters
-   * This ensures captain rotation among the guardrails-compliant players
-   */
-  private selectCaptainsFromFilteredPlayers(
-    filterPassingPlayers: Player[],
+  private async buildRoleSplitTeam(
+    config: any,
+    players: Player[],
+    match: Match,
+    request: TeamGenerationRequest,
     teamIndex: number
-  ): { captain: Player; viceCaptain: Player } {
-    console.log(`🎯 Selecting captains from ${filterPassingPlayers.length} filter-passing players for team ${teamIndex + 1}`);
+  ): Promise<AITeamAnalysis> {
+    const selectedPlayers: Player[] = [];
     
-    if (filterPassingPlayers.length < 2) {
-      console.warn('⚠️ Not enough filter-passing players for captain selection, using first available');
-      return {
-        captain: filterPassingPlayers[0] || { id: 0, name: 'Unknown', player_role: 'BAT' } as Player,
-        viceCaptain: filterPassingPlayers[1] || filterPassingPlayers[0] || { id: 0, name: 'Unknown', player_role: 'BAT' } as Player
-      };
+    // Group players by their primary role
+    const playersByRole = {
+      WK: players.filter(p => p.player_role === 'WK'),
+      BAT: players.filter(p => p.player_role === 'BAT'),
+      AR: players.filter(p => p.player_role === 'AR'),
+      BWL: players.filter(p => p.player_role === 'BWL')
+    };
+
+    // Step 1: Select exact number of wicket keepers
+    const selectedWK = this.selectRoleSplitPlayers(playersByRole.WK, config.wicketKeepers, teamIndex, config.prioritizeForm);
+    selectedPlayers.push(...selectedWK);
+
+    // Step 2: Select exact number of all-rounders
+    const selectedAR = this.selectRoleSplitPlayers(playersByRole.AR, config.allRounders, teamIndex, config.prioritizeForm);
+    selectedPlayers.push(...selectedAR);
+
+    // Step 3: Select bowlers based on bowling type preferences
+    const allBowlers = playersByRole.BWL.filter(p => !selectedPlayers.some(sp => sp.id === p.id));
+    
+    // Categorize bowlers by bowling style
+    const spinners = allBowlers.filter(p => 
+      p.bowling_style?.toLowerCase().includes('spin') || 
+      p.bowling_style?.toLowerCase().includes('orthodox') ||
+      p.bowling_style?.toLowerCase().includes('leg')
+    );
+    const pacers = allBowlers.filter(p => 
+      !p.bowling_style?.toLowerCase().includes('spin') && 
+      !p.bowling_style?.toLowerCase().includes('orthodox') &&
+      !p.bowling_style?.toLowerCase().includes('leg')
+    );
+
+    // Select specified number of spinners and pacers
+    const selectedSpinners = this.selectRoleSplitPlayers(spinners, config.spinners, teamIndex, config.prioritizeForm);
+    const selectedPacers = this.selectRoleSplitPlayers(pacers, config.pacers, teamIndex, config.prioritizeForm);
+    selectedPlayers.push(...selectedSpinners, ...selectedPacers);
+
+    // Step 4: Select batsmen based on batting order preferences
+    const remainingBatsmen = playersByRole.BAT.filter(p => !selectedPlayers.some(sp => sp.id === p.id));
+    
+    // Categorize batsmen by batting order (using points as proxy for batting position)
+    const sortedBatsmen = remainingBatsmen.sort((a, b) => (b.points || 0) - (a.points || 0));
+    const topOrderBatsmen = sortedBatsmen.slice(0, Math.ceil(sortedBatsmen.length * 0.4));
+    const middleOrderBatsmen = sortedBatsmen.slice(Math.ceil(sortedBatsmen.length * 0.4), Math.ceil(sortedBatsmen.length * 0.8));
+    const lowerOrderBatsmen = sortedBatsmen.slice(Math.ceil(sortedBatsmen.length * 0.8));
+
+    // Select specified number of batsmen from each order
+    const selectedTopOrder = this.selectRoleSplitPlayers(topOrderBatsmen, config.topOrderBatsmen, teamIndex, config.prioritizeForm);
+    const selectedMiddleOrder = this.selectRoleSplitPlayers(middleOrderBatsmen, config.middleOrderBatsmen, teamIndex, config.prioritizeForm);
+    const selectedLowerOrder = this.selectRoleSplitPlayers(lowerOrderBatsmen, config.lowerOrderBatsmen, teamIndex, config.prioritizeForm);
+    
+    selectedPlayers.push(...selectedTopOrder, ...selectedMiddleOrder, ...selectedLowerOrder);
+
+    // Step 5: Fill any remaining slots with best available players (fallback)
+    while (selectedPlayers.length < 11) {
+      const remainingPlayers = players.filter(p => 
+        !selectedPlayers.some(sp => sp.id === p.id)
+      ).sort((a, b) => (b.points || 0) - (a.points || 0));
+      
+      if (remainingPlayers.length > 0) {
+        const playerIndex = (teamIndex + selectedPlayers.length) % Math.min(remainingPlayers.length, 5);
+        selectedPlayers.push(remainingPlayers[playerIndex]);
+      } else {
+        break;
+      }
     }
-    
-    // Filter for suitable captain candidates (BAT, AR, WK roles typically better for captaincy)
-    const captainCandidates = filterPassingPlayers.filter(p => 
+
+    // Ensure exactly 11 players
+    const finalPlayers = selectedPlayers.slice(0, 11);
+
+    // Select captain and vice-captain
+    const { captain, viceCaptain } = this.selectRoleSplitCaptains(finalPlayers, teamIndex);
+
+    // Calculate team statistics
+    const totalCredits = finalPlayers.reduce((sum, p) => sum + (p.credits || 8), 0);
+    const roleBalance = this.calculateRoleBalance(finalPlayers);
+    const riskScore = this.calculateRoleSplitRiskScore(config, finalPlayers);
+    const expectedPoints = this.calculateExpectedPoints(finalPlayers, captain, viceCaptain);
+
+    return {
+      players: finalPlayers,
+      captain,
+      viceCaptain,
+      totalCredits,
+      roleBalance,
+      riskScore,
+      expectedPoints,
+      confidence: 85,
+      reasoning: `Role-split team ${teamIndex + 1} with ${config.topOrderBatsmen} top-order, ${config.middleOrderBatsmen} middle-order batsmen, ${config.spinners} spinners, ${config.pacers} pacers`,
+      insights: [
+        `Batting Order: ${config.topOrderBatsmen} top + ${config.middleOrderBatsmen} middle + ${config.lowerOrderBatsmen} lower`,
+        `Bowling Split: ${config.spinners} spinners + ${config.pacers} pacers`,
+        `Role Balance: ${config.allRounders} AR + ${config.wicketKeepers} WK`,
+        `Diversity Level: ${config.diversityLevel}`,
+        `Form Priority: ${config.prioritizeForm ? 'Yes' : 'No'}`
+      ]
+    };
+  }
+
+  private selectRoleSplitPlayers(rolePlayers: Player[], count: number, teamIndex: number, prioritizeForm: boolean): Player[] {
+    if (count === 0 || rolePlayers.length === 0) return [];
+
+    // Sort players based on priority (form vs historical performance)
+    const sortedPlayers = rolePlayers.sort((a, b) => {
+      if (prioritizeForm) {
+        // Prioritize recent form (using points as proxy)
+        return (b.points || 0) - (a.points || 0);
+      } else {
+        // Balance between points and selection percentage
+        const aScore = (a.points || 0) + (a.selection_percentage || 0) * 0.5;
+        const bScore = (b.points || 0) + (b.selection_percentage || 0) * 0.5;
+        return bScore - aScore;
+      }
+    });
+
+    // Create variation using team index
+    const availablePool = Math.min(sortedPlayers.length, count * 4); // Expand pool for variation
+    const selectedPlayers: Player[] = [];
+    const usedIndices = new Set<number>();
+
+    for (let i = 0; i < count && i < sortedPlayers.length; i++) {
+      let index = (teamIndex + i) % availablePool;
+      
+      // Ensure we don't pick the same player twice
+      while (usedIndices.has(index) && usedIndices.size < availablePool) {
+        index = (index + 1) % availablePool;
+      }
+      
+      if (index < sortedPlayers.length) {
+        selectedPlayers.push(sortedPlayers[index]);
+        usedIndices.add(index);
+      }
+    }
+
+    return selectedPlayers;
+  }
+
+  private selectRoleSplitCaptains(players: Player[], teamIndex: number): { captain: Player; viceCaptain: Player } {
+    // Filter for captain-worthy players
+    const captainCandidates = players.filter(p => 
       p.player_role === 'BAT' || p.player_role === 'AR' || p.player_role === 'WK'
     );
+
+    if (captainCandidates.length < 2) {
+      return { captain: players[0], viceCaptain: players[1] };
+    }
+
+    // Sort by performance
+    const sortedCandidates = captainCandidates.sort((a, b) => (b.points || 0) - (a.points || 0));
     
-    // If no suitable candidates, use all filter-passing players
-    const finalCandidates = captainCandidates.length >= 2 ? captainCandidates : filterPassingPlayers;
-    
-    // Sort by performance metrics for better captain selection
-    const sortedCandidates = finalCandidates.sort((a, b) => {
-      // Prioritize by points, then dream team percentage, then selection percentage
-      const aScore = (a.points || 0) * 0.5 + (a.dream_team_percentage || 0) * 0.3 + (a.selection_percentage || 0) * 0.2;
-      const bScore = (b.points || 0) * 0.5 + (b.dream_team_percentage || 0) * 0.3 + (b.selection_percentage || 0) * 0.2;
-      return bScore - aScore;
-    });
-    
-    // Implement captain rotation based on team index
-    const captainIndex = teamIndex % sortedCandidates.length;
-    const viceCaptainIndex = (teamIndex + 1) % sortedCandidates.length;
-    
-    // Ensure captain and vice-captain are different
-    const captain = sortedCandidates[captainIndex];
-    const viceCaptain = sortedCandidates[viceCaptainIndex === captainIndex ? 
-      (viceCaptainIndex + 1) % sortedCandidates.length : viceCaptainIndex];
-    
-    console.log(`✅ Selected captain: ${captain.name} (${captain.player_role})`);
-    console.log(`✅ Selected vice-captain: ${viceCaptain.name} (${viceCaptain.player_role})`);
-    
-    return { captain, viceCaptain };
+    // Vary captain selection to ensure diversity
+    const candidatePool = Math.min(sortedCandidates.length, 6);
+    const captainIndex = teamIndex % candidatePool;
+    const viceCaptainIndex = (teamIndex + 1) % candidatePool;
+
+    return {
+      captain: sortedCandidates[captainIndex],
+      viceCaptain: sortedCandidates[viceCaptainIndex === captainIndex ? 
+        (viceCaptainIndex + 1) % candidatePool : viceCaptainIndex]
+    };
   }
 
-  /**
-   * Calculate role balance for a team
-   */
-  private calculateTeamRoleBalance(players: Player[]): { batsmen: number; bowlers: number; allRounders: number; wicketKeepers: number } {
+  private validateRoleSplitTeam(team: Player[], config: any): boolean {
+    const actualRoles = this.calculateRoleBalance(team);
+    
+    // Check if actual roles match expected configuration
+    const expectedRoles = {
+      wicketKeepers: config.wicketKeepers,
+      allRounders: config.allRounders,
+      // Note: batsmen and bowlers are split by type, but we validate the core roles
+    };
+    
+    return actualRoles.wicketKeepers === expectedRoles.wicketKeepers &&
+           actualRoles.allRounders === expectedRoles.allRounders;
+  }
+
+  private calculateRoleSplitRiskScore(config: any, players: Player[]): number {
+    let riskScore = 50; // Base risk
+
+    // Adjust based on diversity level
+    if (config.diversityLevel === 'high') riskScore += 20;
+    else if (config.diversityLevel === 'low') riskScore -= 20;
+
+    // Adjust based on form prioritization
+    if (config.prioritizeForm) riskScore += 10;
+
+    // Adjust based on average selection percentage
+    const avgSelection = players.reduce((sum, p) => sum + (p.selection_percentage || 0), 0) / players.length;
+    if (avgSelection < 30) riskScore += 15; // Low ownership = higher risk
+    else if (avgSelection > 70) riskScore -= 15; // High ownership = lower risk
+
+    return Math.max(0, Math.min(100, riskScore));
+  }
+
+  private calculateTeamDiversityScore(candidateTeam: AITeamAnalysis, existingTeams: AITeamAnalysis[]): number {
+    if (existingTeams.length === 0) return 100;
+
+    let totalDiversityScore = 0;
+    
+    for (const existingTeam of existingTeams) {
+      const candidatePlayerIds = new Set(candidateTeam.players.map(p => p.id));
+      const existingPlayerIds = new Set(existingTeam.players.map(p => p.id));
+      
+      const differentPlayers = Array.from(candidatePlayerIds).filter(id => !existingPlayerIds.has(id)).length;
+      const diversityPercentage = (differentPlayers / 11) * 100;
+      
+      totalDiversityScore += diversityPercentage;
+    }
+
+    return totalDiversityScore / existingTeams.length;
+  }
+
+  private calculateRoleBalance(players: Player[]): { batsmen: number; bowlers: number; allRounders: number; wicketKeepers: number } {
     const roleBalance = { batsmen: 0, bowlers: 0, allRounders: 0, wicketKeepers: 0 };
     
     players.forEach(player => {
-      const role = Dream11TeamValidator.normalizeRole(player.player_role || '');
-      this.updateRoleBalance(roleBalance, role);
+      switch (player.player_role) {
+        case 'BAT': roleBalance.batsmen++; break;
+        case 'BWL': roleBalance.bowlers++; break;
+        case 'AR': roleBalance.allRounders++; break;
+        case 'WK': roleBalance.wicketKeepers++; break;
+      }
     });
     
     return roleBalance;
   }
 
-  /**
-   * Calculate risk score for a team
-   */
-  private calculateRiskScore(players: Player[], request: TeamGenerationRequest): number {
-    let totalRisk = 0;
-    let count = 0;
-    
-    players.forEach(player => {
-      const selectionPct = player.selection_percentage || 0;
-      const dreamTeamPct = player.dream_team_percentage || 0;
-      
-      // Higher risk for low selection % but potentially high reward
-      const ownershipRisk = selectionPct < 20 ? 30 : selectionPct < 40 ? 15 : 0;
-      
-      // Lower risk for high dream team % players
-      const dreamTeamRisk = dreamTeamPct > 60 ? -10 : dreamTeamPct < 30 ? 20 : 0;
-      
-      totalRisk += ownershipRisk + dreamTeamRisk;
-      count++;
-    });
-    
-    const baseRisk = count > 0 ? totalRisk / count : 50;
-    return Math.max(0, Math.min(100, baseRisk + 50)); // Normalize to 0-100 range
-  }
-
-  /**
-   * Calculate expected points for a team
-   */
-  private calculateExpectedPoints(players: Player[]): number {
-    const basePoints = players.reduce((sum, player) => sum + (player.points || 0), 0);
-    
-    // Add captain and vice-captain multipliers
-    const captain = players[0];
-    const viceCaptain = players[1];
-    
-    const captainBonus = (captain?.points || 0) * 1.0; // 2x - 1x = 1x bonus
-    const viceCaptainBonus = (viceCaptain?.points || 0) * 0.5; // 1.5x - 1x = 0.5x bonus
+  private calculateExpectedPoints(players: Player[], captain: Player, viceCaptain: Player): number {
+    const basePoints = players.reduce((sum, p) => sum + (p.points || 0), 0);
+    const captainBonus = (captain.points || 0) * 1.0; // 2x - 1x = 1x bonus
+    const viceCaptainBonus = (viceCaptain.points || 0) * 0.5; // 1.5x - 1x = 0.5x bonus
     
     return basePoints + captainBonus + viceCaptainBonus;
   }
 
-  /**
-   * Calculate team confidence score
-   */
-  private calculateTeamConfidence(players: Player[], recommendations: AIPlayerRecommendation[]): number {
-    let totalConfidence = 0;
-    let count = 0;
+  // Helper methods for team generation
+  private generateBaseTeamVariations(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
+    // TODO: Implement base team variations for Strategy 8
+    return Promise.resolve([]);
+  }
+
+  private applyStrategyFiltering(
+    rolePlayers: AIPlayerRecommendation[],
+    request: TeamGenerationRequest,
+    teamIndex: number
+  ): AIPlayerRecommendation[] {
+    // Apply strategy-specific filtering logic
+    const strategy = request.strategy;
+    const userPrefs = request.userPreferences;
     
-    players.forEach(player => {
-      const rec = recommendations.find(r => r.player.id === player.id);
-      if (rec) {
-        totalConfidence += rec.confidence;
-        count++;
+    if (strategy === 'core-hedge' && userPrefs?.corePlayers && userPrefs?.hedgePlayers) {
+      // Prioritize core players first, then hedge players
+      const corePlayerNames = userPrefs.corePlayers;
+      const hedgePlayerNames = userPrefs.hedgePlayers;
+      
+      const coreRecs = rolePlayers.filter(rec => corePlayerNames.includes(rec.player.name));
+      const hedgeRecs = rolePlayers.filter(rec => hedgePlayerNames.includes(rec.player.name));
+      const otherRecs = rolePlayers.filter(rec => 
+        !corePlayerNames.includes(rec.player.name) && !hedgePlayerNames.includes(rec.player.name)
+      );
+      
+      return [...coreRecs, ...hedgeRecs, ...otherRecs];
+    }
+    
+    if (strategy === 'stats-driven' && userPrefs?.riskProfile) {
+      // Filter based on risk profile
+      const riskProfile = userPrefs.riskProfile;
+      
+      if (riskProfile === 'conservative') {
+        return rolePlayers.filter(rec => rec.player.selection_percentage > 50);
+      } else if (riskProfile === 'aggressive') {
+        return rolePlayers.filter(rec => rec.player.selection_percentage < 50);
       }
-    });
+    }
     
-    const avgConfidence = count > 0 ? totalConfidence / count : 0.5;
+    // Default: return players sorted by confidence
+    return rolePlayers.sort((a, b) => b.confidence - a.confidence);
+  }
+
+  private forceVariedCaptainSelection(
+    selectedPlayers: Player[],
+    recommendations: AIPlayerRecommendation[],
+    request: TeamGenerationRequest,
+    teamIndex: number
+  ): { captain: Player; viceCaptain: Player } {
+    // Get captain-worthy players (BAT, AR, WK)
+    const captainCandidates = selectedPlayers.filter(p => 
+      p.player_role === 'BAT' || p.player_role === 'AR' || p.player_role === 'WK'
+    );
+
+    if (captainCandidates.length < 2) {
+      return { captain: selectedPlayers[0], viceCaptain: selectedPlayers[1] };
+    }
+
+    // Check if user provided captain combos
+    const userCombos = request.userPreferences?.combos;
+    if (userCombos && userCombos.length > 0) {
+      const combo = userCombos[teamIndex % userCombos.length];
+      const captain = selectedPlayers.find(p => p.name === combo.captain);
+      const viceCaptain = selectedPlayers.find(p => p.name === combo.viceCaptain);
+      
+      if (captain && viceCaptain) {
+        return { captain, viceCaptain };
+      }
+    }
+
+    // Sort candidates by captaincy score
+    const sortedCandidates = captainCandidates.sort((a, b) => {
+      const aRec = recommendations.find(r => r.player.id === a.id);
+      const bRec = recommendations.find(r => r.player.id === b.id);
+      const aScore = aRec?.captaincy_score || 0;
+      const bScore = bRec?.captaincy_score || 0;
+      return bScore - aScore;
+    });
+
+    // Vary captain selection across teams
+    const captainIndex = teamIndex % Math.min(sortedCandidates.length, 4);
+    const viceCaptainIndex = (teamIndex + 1) % Math.min(sortedCandidates.length, 4);
+    
+    const captain = sortedCandidates[captainIndex];
+    const viceCaptain = sortedCandidates[viceCaptainIndex === captainIndex ? 
+      (viceCaptainIndex + 1) % sortedCandidates.length : viceCaptainIndex];
+
+    return { captain, viceCaptain };
+  }
+
+  private calculateRiskScore(selectedPlayers: Player[], request: TeamGenerationRequest): number {
+    let riskScore = 50; // Base risk score
+
+    // Calculate average selection percentage
+    const avgSelection = selectedPlayers.reduce((sum, p) => sum + (p.selection_percentage || 0), 0) / selectedPlayers.length;
+    
+    if (avgSelection < 30) {
+      riskScore += 20; // Low ownership = higher risk
+    } else if (avgSelection > 70) {
+      riskScore -= 20; // High ownership = lower risk
+    }
+
+    // Adjust based on strategy
+    if (request.strategy === 'core-hedge') {
+      riskScore -= 10; // Core-hedge is generally safer
+    } else if (request.strategy === 'stats-driven') {
+      const riskProfile = request.userPreferences?.riskProfile;
+      if (riskProfile === 'aggressive') {
+        riskScore += 15;
+      } else if (riskProfile === 'conservative') {
+        riskScore -= 15;
+      }
+    }
+
+    // Adjust based on credit distribution
+    const totalCredits = selectedPlayers.reduce((sum, p) => sum + (p.credits || 8), 0);
+    if (totalCredits > 95) {
+      riskScore += 10; // High credit teams are riskier
+    } else if (totalCredits < 85) {
+      riskScore -= 10; // Lower credit teams are safer
+    }
+
+    return Math.max(0, Math.min(100, riskScore));
+  }
+
+  private calculateTeamConfidence(selectedPlayers: Player[], recommendations: AIPlayerRecommendation[]): number {
+    // Calculate average confidence from AI recommendations
+    const playerConfidences = selectedPlayers.map(player => {
+      const rec = recommendations.find(r => r.player.id === player.id);
+      return rec?.confidence || 0.5;
+    });
+
+    const avgConfidence = playerConfidences.reduce((sum, conf) => sum + conf, 0) / playerConfidences.length;
+    
+    // Convert to percentage and add some variation
     return Math.round(avgConfidence * 100);
   }
 
-  /**
-   * Generate team insights
-   */
-  private generateTeamInsights(players: Player[], strategy: string): string[] {
+  private generateTeamInsights(selectedPlayers: Player[], strategy: string): string[] {
     const insights: string[] = [];
     
-    // Calculate team stats
-    const avgPoints = players.reduce((sum, p) => sum + (p.points || 0), 0) / players.length;
-    const avgDreamTeam = players.reduce((sum, p) => sum + (p.dream_team_percentage || 0), 0) / players.length;
-    const avgSelection = players.reduce((sum, p) => sum + (p.selection_percentage || 0), 0) / players.length;
-    const totalCredits = players.reduce((sum, p) => sum + (p.credits || 8), 0);
+    // Role balance insights
+    const roleBalance = this.calculateRoleBalance(selectedPlayers);
+    insights.push(`Role Balance: ${roleBalance.batsmen} BAT, ${roleBalance.bowlers} BWL, ${roleBalance.allRounders} AR, ${roleBalance.wicketKeepers} WK`);
     
-    // Role distribution
-    const roleBalance = this.calculateTeamRoleBalance(players);
+    // Credit insights
+    const totalCredits = selectedPlayers.reduce((sum, p) => sum + (p.credits || 8), 0);
+    if (totalCredits > 95) {
+      insights.push('High-credit premium team');
+    } else if (totalCredits < 85) {
+      insights.push('Budget-friendly team with good value picks');
+    }
     
-    insights.push(`Average Points: ${avgPoints.toFixed(1)}`);
-    insights.push(`Average Dream Team %: ${avgDreamTeam.toFixed(1)}%`);
-    insights.push(`Average Selection %: ${avgSelection.toFixed(1)}%`);
-    insights.push(`Total Credits: ${totalCredits}`);
-    insights.push(`Team composition: ${roleBalance.wicketKeepers} WK, ${roleBalance.batsmen} BAT, ${roleBalance.allRounders} AR, ${roleBalance.bowlers} BWL`);
+    // Selection percentage insights
+    const avgSelection = selectedPlayers.reduce((sum, p) => sum + (p.selection_percentage || 0), 0) / selectedPlayers.length;
+    if (avgSelection < 30) {
+      insights.push('Low-ownership differential team');
+    } else if (avgSelection > 70) {
+      insights.push('Popular picks with high ownership');
+    }
     
-    if (strategy === 'stats-driven') {
-      insights.push('Team generated using advanced statistical filters');
+    // Strategy-specific insights
+    if (strategy === 'core-hedge') {
+      insights.push('Core-hedge strategy balances safety and upside');
+    } else if (strategy === 'stats-driven') {
+      insights.push('Statistics-driven selection with advanced filters');
+    } else if (strategy === 'preset-scenarios') {
+      insights.push('Preset scenario-based team composition');
+    } else if (strategy === 'role-split') {
+      insights.push('Role-split lineup with batting order and bowling balance');
     }
     
     return insights;
   }
 
-  /**
-   * Generate team from filtered recommendations (traditional approach)
-   */
   private generateTeamFromFilteredRecommendations(
     filteredRecommendations: AIPlayerRecommendation[],
-    originalRecommendations: AIPlayerRecommendation[],
+    allRecommendations: AIPlayerRecommendation[],
     filters: any,
     request: TeamGenerationRequest,
     teamIndex: number
   ): AITeamAnalysis {
-    console.log(`📊 Generating traditional stats-driven team ${teamIndex + 1} from ${filteredRecommendations.length} filtered players`);
+    console.log(`📊 Generating team ${teamIndex + 1} from ${filteredRecommendations.length} filtered recommendations`);
     
+    // Get a valid Dream11 team composition
+    const validCompositions = Dream11TeamValidator.generateValidTeamCompositions();
+    const targetComposition = validCompositions[teamIndex % validCompositions.length];
+
     const selectedPlayers: Player[] = [];
-    const playersPassingFilters: Player[] = []; // Track players who passed filters
     let totalCredits = 0;
     const maxCredits = DREAM11_RULES.maxCredits;
     
     // Track team counts to enforce max 7 from one team
     const teamCounts: Record<string, number> = {};
     
-    // Get target composition
-    const validCompositions = Dream11TeamValidator.generateValidTeamCompositions();
-    const targetComposition = validCompositions[teamIndex % validCompositions.length];
-    
-    // Group recommendations by role
+    // Group filtered recommendations by role
     const playersByRole = this.groupRecommendationsByRole(filteredRecommendations);
     
-    // Select players for each role
+    // Role balance tracking
+    const roleBalance = { batsmen: 0, bowlers: 0, allRounders: 0, wicketKeepers: 0 };
+
+    // Select players for each role according to target composition
     Object.entries(targetComposition).forEach(([role, count]) => {
       const roleCount = count as number;
       const rolePlayers = playersByRole[role as keyof typeof playersByRole] || [];
       
-      // Apply team-specific selection strategy for variation
-      const strategyFilteredPlayers = this.applyTeamVariationStrategy(rolePlayers, teamIndex);
-      
       let selected = 0;
-      for (const rec of strategyFilteredPlayers) {
+      for (const rec of rolePlayers) {
         if (selected >= roleCount) break;
         
         const player = rec.player;
@@ -1425,999 +1711,89 @@ export class AIService {
             (teamCounts[playerTeam] || 0) < DREAM11_RULES.maxPlayersFromOneTeam) {
           
           selectedPlayers.push(player);
-          playersPassingFilters.push(player); // Track filter-passing players
           totalCredits += playerCredits;
           teamCounts[playerTeam] = (teamCounts[playerTeam] || 0) + 1;
           selected++;
+          
+          // Update role balance
+          this.updateRoleBalance(roleBalance, role);
         }
       }
     });
-    
-    // Fill remaining slots with filtered players first
-    while (selectedPlayers.length < 11) {
-      const usedIds = new Set(selectedPlayers.map(p => p.id));
-      const availablePlayer = filteredRecommendations.find(rec => 
-        !usedIds.has(rec.player.id) &&
-        totalCredits + (rec.player.credits || 8) <= maxCredits
+
+    // Fill remaining slots if needed
+    while (selectedPlayers.length < DREAM11_RULES.totalPlayers) {
+      const remainingRecs = allRecommendations.filter(rec => 
+        !selectedPlayers.some(p => p.id === rec.player.id)
       );
       
-      if (availablePlayer) {
-        selectedPlayers.push(availablePlayer.player);
-        playersPassingFilters.push(availablePlayer.player); // Also track these
-        totalCredits += availablePlayer.player.credits || 8;
-      } else {
-        break;
-      }
+      if (remainingRecs.length === 0) break;
+      
+      const nextPlayer = remainingRecs[0].player;
+      selectedPlayers.push(nextPlayer);
+      totalCredits += nextPlayer.credits || 8;
     }
-    
-    // If still under 11 players, fill with random players from original recommendations
-    if (selectedPlayers.length < 11) {
-      console.warn(`Only ${selectedPlayers.length} players from filters, filling remaining ${11 - selectedPlayers.length} slots with random players`);
-      
-      const usedIds = new Set(selectedPlayers.map(p => p.id));
-      const availableFromOriginal = originalRecommendations.filter(rec => 
-        !usedIds.has(rec.player.id)
-      );
-      
-      // Shuffle and fill remaining slots
-      const shuffled = availableFromOriginal.sort(() => Math.random() - 0.5);
-      let filled = 0;
-      
-      for (const rec of shuffled) {
-        if (selectedPlayers.length >= 11) break;
-        
-        const player = rec.player;
-        const playerCredits = player.credits || 8;
-        const playerTeam = player.team_name || 'Unknown';
-        
-        // Check Dream11 constraints
-        if (totalCredits + playerCredits <= maxCredits &&
-            (teamCounts[playerTeam] || 0) < DREAM11_RULES.maxPlayersFromOneTeam) {
-          
-          selectedPlayers.push(player);
-          totalCredits += playerCredits;
-          teamCounts[playerTeam] = (teamCounts[playerTeam] || 0) + 1;
-          filled++;
-        }
-      }
-      
-      console.log(`✅ Filled team with ${playersPassingFilters.length} filter-passing players + ${filled} random players`);
-    }
-    
-    // If still under 11 players, use complete fallback
-    if (selectedPlayers.length < 11) {
-      console.warn(`Still only ${selectedPlayers.length} players after all attempts, using complete fallback`);
-      return this.generateFallbackTeam(originalRecommendations, request, teamIndex);
-    }
-    
-    // Use filter-passing players for captain selection when possible
-    const captainCandidates = playersPassingFilters.length >= 2 ? playersPassingFilters : selectedPlayers;
-    const { captain, viceCaptain } = this.selectCaptainsFromFilteredPlayers(captainCandidates, teamIndex);
-    
-    return {
-      players: selectedPlayers,
-      captain,
-      viceCaptain,
-      totalCredits,
-      roleBalance: this.calculateTeamRoleBalance(selectedPlayers),
-      riskScore: this.calculateRiskScore(selectedPlayers, request),
-      expectedPoints: this.calculateExpectedPoints(selectedPlayers),
-      confidence: this.calculateTeamConfidence(selectedPlayers, filteredRecommendations),
-      insights: this.generateTeamInsights(selectedPlayers, request.strategy)
-    };
-  }
 
-  /**
-   * Apply team variation strategy for different teams
-   */
-  private applyTeamVariationStrategy(
-    rolePlayers: AIPlayerRecommendation[],
-    teamIndex: number
-  ): AIPlayerRecommendation[] {
-    const strategyIndex = teamIndex % 7;
-    
-    switch (strategyIndex) {
-      case 0: // Team 1: Top performers
-        return rolePlayers.sort((a, b) => b.confidence - a.confidence);
-      case 1: // Team 2: Skip top 2, then select
-        return rolePlayers.sort((a, b) => b.confidence - a.confidence).slice(2);
-      case 2: // Team 3: Middle performers
-        const sorted = rolePlayers.sort((a, b) => b.confidence - a.confidence);
-        const mid = Math.floor(sorted.length / 2);
-        return sorted.slice(mid - 2, mid + 2);
-      case 3: // Team 4: Reverse order
-        return rolePlayers.sort((a, b) => a.confidence - b.confidence);
-      case 4: // Team 5: Randomized
-        return rolePlayers.sort(() => Math.random() - 0.5);
-      case 5: // Team 6: Credit-efficient
-        return rolePlayers.sort((a, b) => {
-          const aEfficiency = (a.player.points || 0) / (a.player.credits || 8);
-          const bEfficiency = (b.player.points || 0) / (b.player.credits || 8);
-          return bEfficiency - aEfficiency;
-        });
-      case 6: // Team 7: Balanced approach
-        return rolePlayers.sort((a, b) => {
-          const aScore = (a.confidence * 0.6) + ((a.player.points || 0) / 100 * 0.4);
-          const bScore = (b.confidence * 0.6) + ((b.player.points || 0) / 100 * 0.4);
-          return bScore - aScore;
-        });
-      default:
-        return rolePlayers;
-    }
-  }
-
-  /**
-   * Strategy 8: Base Team + Rule-Based Edits
-   * Generates variations of a user-provided base team using optimization rules
-   */
-  async generateBaseTeamVariations(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
-    try {
-      const { baseTeam, optimizationRules, teamNames } = request.userPreferences!;
-      const teams: AITeamAnalysis[] = [];
-      
-      console.log('🎯 Strategy 8: Generating base team variations', {
-        baseTeamSize: baseTeam?.length,
-        teamCount: request.teamCount,
-        editIntensity: optimizationRules?.editIntensity
-      });
-
-      // Get all available players for swapping
-      let allPlayers: Player[] = [];
-      try {
-        // allPlayers = await neonDB.getPlayingPlayersForMatch(request.matchId);
-        console.warn('⚠️  Database temporarily disabled for testing');
-        // Use mock players for testing instead
-        allPlayers = [
-          { id: 12, name: 'Kane Williamson', full_name: 'Kane Williamson', player_role: 'BAT', credits: 10.5, points: 138, dream_team_percentage: 42, selection_percentage: 38, team_name: 'New Zealand', is_playing_today: true, country: 'NZ', batting_style: 'RHB', bowling_style: 'N/A' },
-          { id: 13, name: 'Ross Taylor', full_name: 'Ross Taylor', player_role: 'BAT', credits: 9.5, points: 86, dream_team_percentage: 28, selection_percentage: 22, team_name: 'New Zealand', is_playing_today: true, country: 'NZ', batting_style: 'RHB', bowling_style: 'N/A' },
-          { id: 14, name: 'Temba Bavuma', full_name: 'Temba Bavuma', player_role: 'BAT', credits: 9.0, points: 78, dream_team_percentage: 25, selection_percentage: 18, team_name: 'South Africa', is_playing_today: true, country: 'SA', batting_style: 'RHB', bowling_style: 'N/A' },
-          { id: 15, name: 'Devon Conway', full_name: 'Devon Conway', player_role: 'WK', credits: 8.5, points: 89, dream_team_percentage: 32, selection_percentage: 24, team_name: 'New Zealand', is_playing_today: true, country: 'NZ', batting_style: 'LHB', bowling_style: 'N/A' },
-          { id: 16, name: 'Faf du Plessis', full_name: 'Faf du Plessis', player_role: 'BAT', credits: 9.5, points: 92, dream_team_percentage: 35, selection_percentage: 28, team_name: 'South Africa', is_playing_today: true, country: 'SA', batting_style: 'RHB', bowling_style: 'N/A' },
-          { id: 17, name: 'Kagiso Rabada', full_name: 'Kagiso Rabada', player_role: 'BWL', credits: 9.0, points: 74, dream_team_percentage: 30, selection_percentage: 25, team_name: 'South Africa', is_playing_today: true, country: 'SA', batting_style: 'RHB', bowling_style: 'RF' },
-          { id: 18, name: 'Trent Boult', full_name: 'Trent Boult', player_role: 'BWL', credits: 8.5, points: 68, dream_team_percentage: 28, selection_percentage: 22, team_name: 'New Zealand', is_playing_today: true, country: 'NZ', batting_style: 'LHB', bowling_style: 'LF' },
-          { id: 19, name: 'Quinton de Kock', full_name: 'Quinton de Kock', player_role: 'WK', credits: 10.0, points: 95, dream_team_percentage: 38, selection_percentage: 35, team_name: 'South Africa', is_playing_today: true, country: 'SA', batting_style: 'LHB', bowling_style: 'N/A' },
-          { id: 20, name: 'Anrich Nortje', full_name: 'Anrich Nortje', player_role: 'BWL', credits: 8.0, points: 62, dream_team_percentage: 22, selection_percentage: 18, team_name: 'South Africa', is_playing_today: true, country: 'SA', batting_style: 'RHB', bowling_style: 'RF' }
-        ];
-      } catch (error) {
-        console.warn('⚠️  Database unavailable, using mock players for testing');
-        // Return mock players for testing when database is unavailable
-        allPlayers = [
-          { id: 12, name: 'Player12', full_name: 'Player12', player_role: 'BAT', credits: 9.0, points: 50, dream_team_percentage: 32, selection_percentage: 20, team_name: 'Team B', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'N/A' },
-          { id: 13, name: 'Player13', full_name: 'Player13', player_role: 'BWL', credits: 8.5, points: 36, dream_team_percentage: 20, selection_percentage: 12, team_name: 'Team A', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'RF' },
-          { id: 14, name: 'Player14', full_name: 'Player14', player_role: 'AR', credits: 9.5, points: 45, dream_team_percentage: 28, selection_percentage: 18, team_name: 'Team B', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'RF' },
-          { id: 15, name: 'Player15', full_name: 'Player15', player_role: 'WK', credits: 8.0, points: 38, dream_team_percentage: 22, selection_percentage: 14, team_name: 'Team A', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'N/A' },
-          { id: 16, name: 'Player16', full_name: 'Player16', player_role: 'BAT', credits: 10.0, points: 42, dream_team_percentage: 26, selection_percentage: 16, team_name: 'Team B', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'N/A' },
-          { id: 17, name: 'Player17', full_name: 'Player17', player_role: 'BWL', credits: 9.0, points: 44, dream_team_percentage: 30, selection_percentage: 19, team_name: 'Team A', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'RF' },
-          { id: 18, name: 'Player18', full_name: 'Player18', player_role: 'AR', credits: 10.5, points: 52, dream_team_percentage: 38, selection_percentage: 25, team_name: 'Team B', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'RF' },
-          { id: 19, name: 'Player19', full_name: 'Player19', player_role: 'BAT', credits: 8.5, points: 34, dream_team_percentage: 18, selection_percentage: 11, team_name: 'Team A', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'N/A' },
-          { id: 20, name: 'Player20', full_name: 'Player20', player_role: 'BWL', credits: 9.0, points: 40, dream_team_percentage: 25, selection_percentage: 15, team_name: 'Team B', is_playing_today: true, country: 'IND', batting_style: 'RHB', bowling_style: 'RF' }
-        ];
-      }
-      
-      // Filter players not in base team for potential swaps
-      const availableForSwap = allPlayers.filter((p: Player) => 
-        !baseTeam?.some((bp: Player) => bp.id === p.id)
-      );
-
-      // Generate variations based on edit intensity
-      for (let i = 0; i < request.teamCount; i++) {
-        const variation = await this.generateSingleBaseTeamVariation(
-          baseTeam!,
-          availableForSwap,
-          optimizationRules!,
-          i,
-          teamNames
-        );
-        teams.push(variation);
-      }
-
-      console.log('✅ Strategy 8: Generated variations', {
-        totalTeams: teams.length,
-        averageCredits: teams.reduce((sum, t) => sum + t.totalCredits, 0) / teams.length
-      });
-
-      return teams;
-    } catch (error) {
-      console.error('❌ Strategy 8: Error generating base team variations:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Generate a single variation of the base team
-   */
-  private async generateSingleBaseTeamVariation(
-    baseTeam: Player[],
-    availableForSwap: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
-    teamIndex: number,
-    teamNames?: { teamA: string; teamB: string }
-  ): Promise<AITeamAnalysis> {
-    // Start with base team
-    let currentTeam = [...baseTeam];
-    
-    // Determine number of edits based on intensity
-    const editCount = this.calculateEditCount(rules!.editIntensity, teamIndex);
-    
-    // Apply edits based on optimization rules
-    currentTeam = await this.applyOptimizationEdits(
-      currentTeam,
-      availableForSwap,
-      rules!,
-      editCount,
-      teamIndex
-    );
-
-    // Validate team composition
-    currentTeam = await this.validateAndFixTeamComposition(currentTeam, availableForSwap, rules!);
+    // Ensure exactly 11 players
+    const finalPlayers = selectedPlayers.slice(0, 11);
 
     // Select captain and vice-captain
-    const { captain, viceCaptain } = await this.selectCaptainAndViceCaptain(
-      currentTeam,
-      rules!.primaryParameter,
-      teamIndex
-    );
-
-    // Calculate metrics
-    const totalCredits = currentTeam.reduce((sum, p) => sum + (p.credits || 0), 0);
-    const roleBalance = this.calculateTeamRoleBalance(currentTeam);
-    const riskScore = this.calculateBaseTeamRiskScore(currentTeam, rules!);
-    const expectedPoints = this.calculateExpectedPoints(currentTeam);
-    const confidence = this.calculateBaseTeamConfidence(currentTeam, rules!, teamIndex);
+    const { captain, viceCaptain } = this.forceVariedCaptainSelection(finalPlayers, allRecommendations, request, teamIndex);
 
     return {
-      players: currentTeam,
+      players: finalPlayers,
       captain,
       viceCaptain,
       totalCredits,
       roleBalance,
-      riskScore,
-      expectedPoints,
-      confidence,
-      reasoning: this.generateBaseTeamReasoning(currentTeam, baseTeam, rules!, editCount),
-      insights: this.generateBaseTeamInsights(currentTeam, rules!, teamIndex)
+      riskScore: this.calculateRiskScore(finalPlayers, request),
+      expectedPoints: this.calculateExpectedPoints(finalPlayers, captain, viceCaptain),
+      confidence: this.calculateTeamConfidence(finalPlayers, allRecommendations),
+      insights: this.generateTeamInsights(finalPlayers, request.strategy),
+      reasoning: `Stats-driven team ${teamIndex + 1} with enhanced filtering applied`
     };
   }
 
-  /**
-   * Calculate number of edits based on intensity and team index
-   */
-  private calculateEditCount(intensity: 'minor' | 'moderate' | 'major', teamIndex: number): number {
-    const baseEdits = {
-      minor: 1,
-      moderate: 3,
-      major: 5
-    };
+  private createRolePriorityEntries(
+    players: Player[], 
+    targetCount: number, 
+    roleType: string, 
+    teamIndex: number, 
+    prioritizeForm: boolean
+  ): Array<{ player: Player; score: number; roleType: string }> {
+    if (targetCount === 0 || players.length === 0) return [];
 
-    const base = baseEdits[intensity];
-    const variation = Math.floor(teamIndex / 3); // Every 3 teams, increase by 1
-    const editCount = Math.min(base + variation, intensity === 'major' ? 7 : intensity === 'moderate' ? 5 : 3);
-    
-    console.log(`📊 Edit count calculation: ${intensity} intensity, team ${teamIndex} → ${base} base + ${variation} variation = ${editCount} edits`);
-    
-    return editCount;
-  }
-
-  /**
-   * Apply optimization edits to the team with randomization
-   */
-  private async applyOptimizationEdits(
-    team: Player[],
-    availableForSwap: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
-    editCount: number,
-    teamIndex: number
-  ): Promise<Player[]> {
-    let editedTeam = [...team];
-    const editsApplied = [];
-
-    console.log(`🔄 Attempting to apply ${editCount} edits to base team...`);
-
-    // Shuffle available players to add randomization
-    const shuffledAvailable = this.shuffleArray(availableForSwap);
-    console.log(`🎲 Shuffled ${shuffledAvailable.length} available players for variation`);
-
-    // Primary edit strategy
-    for (let i = 0; i < editCount; i++) {
-      const edit = await this.generateSingleEdit(
-        editedTeam,
-        shuffledAvailable,
-        rules!,
-        teamIndex + i,
-        editsApplied
-      );
-
-      if (edit) {
-        editedTeam = edit.newTeam;
-        editsApplied.push(edit);
+    // Sort players based on priority
+    const sortedPlayers = players.sort((a, b) => {
+      if (prioritizeForm) {
+        return (b.points || 0) - (a.points || 0);
       } else {
-        console.log(`⚠️ Could not generate edit ${i + 1}/${editCount}, trying alternative approach`);
-        
-        // Alternative approach: try random swaps with less strict constraints
-        const randomEdit = await this.generateRandomEdit(
-          editedTeam,
-          shuffledAvailable,
-          rules!,
-          editsApplied
-        );
-        
-        if (randomEdit) {
-          editedTeam = randomEdit.newTeam;
-          editsApplied.push(randomEdit);
-          console.log(`✅ Applied random edit: ${randomEdit.oldPlayer.name} → ${randomEdit.newPlayer.name}`);
-        }
+        const aScore = (a.points || 0) + (a.selection_percentage || 0) * 0.5;
+        const bScore = (b.points || 0) + (b.selection_percentage || 0) * 0.5;
+        return bScore - aScore;
       }
-    }
-
-    console.log(`🔄 Applied ${editsApplied.length}/${editCount} edits to base team:`, 
-      editsApplied.map(e => `${e.oldPlayer.name} → ${e.newPlayer.name}`)
-    );
-
-    return editedTeam;
-  }
-
-  /**
-   * Generate a random edit when systematic approach fails
-   */
-  private async generateRandomEdit(
-    currentTeam: Player[],
-    availableForSwap: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
-    previousEdits: Array<{ oldPlayer: Player; newPlayer: Player; newTeam: Player[] }>
-  ): Promise<{ oldPlayer: Player; newPlayer: Player; newTeam: Player[] } | null> {
-    
-    console.log(`🎲 Attempting random edit as fallback...`);
-    
-    // Get players that haven't been recently edited
-    const candidatesForRemoval = currentTeam.filter(player => 
-      !previousEdits.some(edit => edit.newPlayer.id === player.id)
-    );
-    
-    // Try up to 10 random combinations
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const oldPlayer = candidatesForRemoval[Math.floor(Math.random() * candidatesForRemoval.length)];
-      const newPlayer = availableForSwap[Math.floor(Math.random() * availableForSwap.length)];
-      
-      if (oldPlayer && newPlayer) {
-        const newTeam = currentTeam.map(p => 
-          p.id === oldPlayer.id ? newPlayer : p
-        );
-        
-        // Check if this swap is valid
-        if (await this.validateTeamConstraints(newTeam, rules!)) {
-          console.log(`✅ Random edit successful: ${oldPlayer.name} → ${newPlayer.name}`);
-          return { oldPlayer, newPlayer, newTeam };
-        }
-      }
-    }
-    
-    console.log(`❌ Random edit failed after 10 attempts`);
-    return null;
-  }
-
-  /**
-   * Shuffle array using Fisher-Yates algorithm
-   */
-  private shuffleArray<T>(array: T[]): T[] {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  }
-
-  /**
-   * Generate a single edit (player swap) with randomization for diversity
-   */
-  private async generateSingleEdit(
-    currentTeam: Player[],
-    availableForSwap: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
-    variation: number,
-    previousEdits: Array<{ oldPlayer: Player; newPlayer: Player; newTeam: Player[] }>
-  ): Promise<{ oldPlayer: Player; newPlayer: Player; newTeam: Player[] } | null> {
-    
-    console.log(`🔄 Attempting edit ${previousEdits.length + 1} with ${availableForSwap.length} available players`);
-    
-    // Get optimization strategy based on primary parameter
-    const optimizationStrategy = this.getOptimizationStrategy(rules!.primaryParameter, variation);
-    
-    // Find players to potentially replace (exclude players that were just added)
-    const candidatesForRemoval = currentTeam.filter(player => 
-      !previousEdits.some(edit => edit.newPlayer.id === player.id)
-    );
-
-    console.log(`🎯 ${candidatesForRemoval.length} candidates for removal from current team`);
-
-    // Sort by optimization parameter (worst first for replacement)
-    candidatesForRemoval.sort((a, b) => {
-      const scoreA = this.getPlayerOptimizationScore(a, rules!.primaryParameter);
-      const scoreB = this.getPlayerOptimizationScore(b, rules!.primaryParameter);
-      return scoreA - scoreB; // Ascending (worst first)
     });
 
-    // Add randomization: shuffle the candidates with bias towards worse players
-    const topCandidates = candidatesForRemoval.slice(0, Math.min(6, candidatesForRemoval.length));
-    const shuffledCandidates = this.shuffleArray(topCandidates);
-
-    console.log(`🔄 Trying to replace players in randomized order: ${shuffledCandidates.slice(0, 3).map(p => p.name).join(', ')}`);
-
-    // Try to find a suitable replacement
-    for (const oldPlayer of shuffledCandidates) {
-      console.log(`🔄 Trying to replace ${oldPlayer.name} (${oldPlayer.player_role}, ${oldPlayer.credits} cr)`);
+    // Create priority entries with varying scores to ensure team diversity
+    const entries = [];
+    const poolSize = Math.min(sortedPlayers.length, targetCount * 3);
+    
+    for (let i = 0; i < poolSize; i++) {
+      const player = sortedPlayers[i];
+      const baseScore = (player.points || 0) + (player.selection_percentage || 0) * 0.3;
       
-      const replacement = await this.findBestReplacement(
-        oldPlayer,
-        currentTeam,
-        availableForSwap,
-        rules!,
-        optimizationStrategy,
-        variation // Pass variation for randomization
-      );
-
-      if (replacement) {
-        console.log(`✅ Found replacement: ${oldPlayer.name} → ${replacement.name}`);
-        const newTeam = currentTeam.map(p => 
-          p.id === oldPlayer.id ? replacement : p
-        );
-
-        // Validate the swap maintains team constraints
-        if (await this.validateTeamConstraints(newTeam, rules!)) {
-          console.log(`✅ Swap validated successfully`);
-          return { oldPlayer, newPlayer: replacement, newTeam };
-        } else {
-          console.log(`❌ Swap failed validation`);
-        }
-      } else {
-        console.log(`❌ No suitable replacement found for ${oldPlayer.name}`);
-      }
-    }
-
-    console.log(`❌ No valid edits found in this attempt`);
-    return null;
-  }
-
-  /**
-   * Find the best replacement for a player with randomization for diversity
-   */
-  private async findBestReplacement(
-    oldPlayer: Player,
-    currentTeam: Player[],
-    availableForSwap: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
-    optimizationStrategy: string,
-    variation: number
-  ): Promise<Player | null> {
-    
-    console.log(`🔍 Finding replacement for ${oldPlayer.name} (${oldPlayer.player_role}) from ${availableForSwap.length} available players`);
-    
-    // Get current team composition
-    const currentRoleBalance = this.calculateTeamRoleBalance(currentTeam);
-    const oldRole = this.getPlayerRole(oldPlayer.player_role);
-    
-    // Get set of current team player IDs to exclude them from selection
-    const currentTeamIds = new Set(currentTeam.map(p => p.id));
-    
-    // Filter candidates by role and exclude players already in current team
-    const candidates = availableForSwap.filter(player => {
-      // First check: exclude players already in current team
-      if (currentTeamIds.has(player.id)) {
-        console.log(`❌ Excluding ${player.name} - already in current team`);
-        return false;
-      }
+      // Add variation based on team index to ensure different teams
+      const variation = (teamIndex + i) % 3;
+      const finalScore = baseScore + variation * 2;
       
-      const newRole = this.getPlayerRole(player.player_role);
-      
-      // Primary preference: same role
-      if (oldRole === newRole) {
-        return true;
-      }
-      
-      // Secondary preference: allow all-rounders to replace any non-WK role
-      if (newRole === 'allRounders' && oldRole !== 'wicketKeepers') {
-        return true;
-      }
-      
-      // Allow any role to replace all-rounders (except if it violates constraints)
-      if (oldRole === 'allRounders') {
-        return true;
-      }
-      
-      // Allow batsmen and bowlers to be interchangeable if team balance permits
-      if ((oldRole === 'batsmen' && newRole === 'bowlers') || 
-          (oldRole === 'bowlers' && newRole === 'batsmen')) {
-        return true;
-      }
-      
-      return false;
-    });
-
-    console.log(`🎯 ${candidates.length} role-compatible candidates found`);
-
-    if (candidates.length === 0) {
-      console.log(`❌ No role-compatible candidates for ${oldPlayer.name}`);
-      return null;
+      entries.push({
+        player,
+        score: finalScore,
+        roleType
+      });
     }
 
-    // Filter by credit constraints
-    const currentCredits = currentTeam.reduce((sum, p) => sum + (p.credits || 0), 0);
-    const budgetAfterRemoval = currentCredits - (oldPlayer.credits || 0);
-    
-    const affordableCandidates = candidates.filter(player => {
-      const newTotal = budgetAfterRemoval + (player.credits || 0);
-      return newTotal >= rules!.guardrails.minCredits && newTotal <= rules!.guardrails.maxCredits;
-    });
-
-    console.log(`💰 ${affordableCandidates.length} affordable candidates (budget: ${budgetAfterRemoval.toFixed(1)} + player credits must be ${rules!.guardrails.minCredits}-${rules!.guardrails.maxCredits})`);
-
-    if (affordableCandidates.length === 0) {
-      console.log(`❌ No affordable candidates for ${oldPlayer.name}`);
-      return null;
-    }
-
-    // Sort by optimization score
-    affordableCandidates.sort((a, b) => {
-      const scoreA = this.getPlayerOptimizationScore(a, rules!.primaryParameter);
-      const scoreB = this.getPlayerOptimizationScore(b, rules!.primaryParameter);
-      return scoreB - scoreA; // Descending (best first)
-    });
-
-    console.log(`📊 Top 3 candidates by ${rules!.primaryParameter}: ${affordableCandidates.slice(0, 3).map(p => `${p.name} (${this.getPlayerOptimizationScore(p, rules!.primaryParameter)})`).join(', ')}`);
-
-    // Add randomization to candidate selection based on variation
-    const selectedPlayer = this.applyOptimizationStrategy(
-      affordableCandidates,
-      rules!,
-      optimizationStrategy,
-      variation
-    );
-
-    console.log(`✅ Selected: ${selectedPlayer?.name || 'None'}`);
-    return selectedPlayer;
-  }
-
-  /**
-   * Get optimization strategy based on primary parameter and variation with randomization
-   */
-  private getOptimizationStrategy(
-    primaryParameter: 'dreamTeamPercentage' | 'selectionPercentage' | 'averagePoints',
-    variation: number
-  ): string {
-    const strategies = {
-      dreamTeamPercentage: ['elite-performers', 'consistent-picks', 'value-finds'],
-      selectionPercentage: ['low-ownership', 'balanced-ownership', 'popular-picks'],
-      averagePoints: ['form-based', 'season-average', 'recent-performance']
-    };
-
-    const strategyList = strategies[primaryParameter];
-    
-    // Add some randomization to strategy selection
-    const baseStrategy = strategyList[variation % strategyList.length];
-    const randomOffset = Math.floor(variation / 3) % strategyList.length;
-    const finalStrategyIndex = (strategyList.indexOf(baseStrategy) + randomOffset) % strategyList.length;
-    
-    return strategyList[finalStrategyIndex];
-  }
-
-  /**
-   * Get player optimization score based on parameter
-   */
-  private getPlayerOptimizationScore(
-    player: Player,
-    parameter: 'dreamTeamPercentage' | 'selectionPercentage' | 'averagePoints'
-  ): number {
-    switch (parameter) {
-      case 'dreamTeamPercentage':
-        return player.dream_team_percentage || 0;
-      case 'selectionPercentage':
-        return player.selection_percentage || 0;
-      case 'averagePoints':
-        return player.points || 0;
-      default:
-        return 0;
-    }
-  }
-
-  /**
-   * Apply optimization strategy to candidate selection with randomization
-   */
-  private applyOptimizationStrategy(
-    candidates: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
-    strategy: string,
-    variation: number = 0
-  ): Player | null {
-    if (candidates.length === 0) return null;
-
-    // Apply strategy-specific logic
-    switch (strategy) {
-      case 'elite-performers':
-        // Add randomization: pick from top 3 performers instead of always the best
-        const topPerformers = candidates.slice(0, Math.min(3, candidates.length));
-        const performerIndex = variation % topPerformers.length;
-        return topPerformers[performerIndex];
-      
-      case 'value-finds':
-        // Find best points per credit ratio
-        candidates.sort((a, b) => {
-          const ratioA = (a.points || 0) / (a.credits || 1);
-          const ratioB = (b.points || 0) / (b.credits || 1);
-          return ratioB - ratioA;
-        });
-        // Add randomization: pick from top value picks
-        const topValues = candidates.slice(0, Math.min(3, candidates.length));
-        const valueIndex = variation % topValues.length;
-        return topValues[valueIndex];
-      
-      case 'low-ownership':
-        // Prefer players with lower selection percentage
-        candidates.sort((a, b) => 
-          (a.selection_percentage || 0) - (b.selection_percentage || 0)
-        );
-        // Add randomization: pick from top low-ownership players
-        const lowOwnership = candidates.slice(0, Math.min(3, candidates.length));
-        const ownershipIndex = variation % lowOwnership.length;
-        return lowOwnership[ownershipIndex];
-      
-      case 'form-based':
-        // Prefer players with recent good form
-        candidates.sort((a, b) => {
-          const formA = this.calculateRecentForm(a);
-          const formB = this.calculateRecentForm(b);
-          return formB - formA;
-        });
-        // Add randomization: pick from top form players
-        const topForm = candidates.slice(0, Math.min(3, candidates.length));
-        const formIndex = variation % topForm.length;
-        return topForm[formIndex];
-      
-      default:
-        // Default randomization: pick from top candidates
-        const topCandidates = candidates.slice(0, Math.min(3, candidates.length));
-        const randomIndex = variation % topCandidates.length;
-        return topCandidates[randomIndex];
-    }
-  }
-
-  /**
-   * Calculate recent form score for a player
-   */
-  private calculateRecentForm(player: Player): number {
-    // Use a combination of recent points and consistency
-    const baseScore = player.points || 0;
-    const consistency = 1 - (player.selection_percentage || 0) / 100; // Lower ownership = higher uniqueness
-    return baseScore * (1 + consistency * 0.2);
-  }
-
-  /**
-   * Validate team constraints after edit
-   */
-  private async validateTeamConstraints(
-    team: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules']
-  ): Promise<boolean> {
-    console.log(`🔍 Validating team constraints...`);
-    
-    // Check role constraints
-    const roleBalance = this.calculateTeamRoleBalance(team);
-    console.log(`📊 Role balance: BAT=${roleBalance.batsmen}/${rules!.guardrails.maxPerRole.batsmen}, BWL=${roleBalance.bowlers}/${rules!.guardrails.maxPerRole.bowlers}, AR=${roleBalance.allRounders}/${rules!.guardrails.maxPerRole.allRounders}, WK=${roleBalance.wicketKeepers}/${rules!.guardrails.maxPerRole.wicketKeepers}`);
-    
-    if (roleBalance.batsmen > rules!.guardrails.maxPerRole.batsmen) {
-      console.log(`❌ Too many batsmen: ${roleBalance.batsmen} > ${rules!.guardrails.maxPerRole.batsmen}`);
-      return false;
-    }
-    if (roleBalance.bowlers > rules!.guardrails.maxPerRole.bowlers) {
-      console.log(`❌ Too many bowlers: ${roleBalance.bowlers} > ${rules!.guardrails.maxPerRole.bowlers}`);
-      return false;
-    }
-    if (roleBalance.allRounders > rules!.guardrails.maxPerRole.allRounders) {
-      console.log(`❌ Too many all-rounders: ${roleBalance.allRounders} > ${rules!.guardrails.maxPerRole.allRounders}`);
-      return false;
-    }
-    if (roleBalance.wicketKeepers > rules!.guardrails.maxPerRole.wicketKeepers) {
-      console.log(`❌ Too many wicket-keepers: ${roleBalance.wicketKeepers} > ${rules!.guardrails.maxPerRole.wicketKeepers}`);
-      return false;
-    }
-
-    // Check credit constraints
-    const totalCredits = team.reduce((sum, p) => sum + (p.credits || 0), 0);
-    console.log(`💰 Total credits: ${totalCredits.toFixed(1)} (range: ${rules!.guardrails.minCredits}-${rules!.guardrails.maxCredits})`);
-    
-    if (totalCredits < rules!.guardrails.minCredits) {
-      console.log(`❌ Credits too low: ${totalCredits.toFixed(1)} < ${rules!.guardrails.minCredits}`);
-      return false;
-    }
-    if (totalCredits > rules!.guardrails.maxCredits) {
-      console.log(`❌ Credits too high: ${totalCredits.toFixed(1)} > ${rules!.guardrails.maxCredits}`);
-      return false;
-    }
-
-    // Check team split constraints
-    const teamCounts = this.calculateTeamSplit(team);
-    console.log(`🏏 Team split: ${Object.entries(teamCounts).map(([team, count]) => `${team}=${count}`).join(', ')}`);
-    
-    for (const [teamName, count] of Object.entries(teamCounts)) {
-      if (count > 7) {
-        console.log(`❌ Too many players from ${teamName}: ${count} > 7`);
-        return false;
-      }
-    }
-
-    // Ensure at least 1 wicket keeper
-    if (roleBalance.wicketKeepers === 0) {
-      console.log(`❌ No wicket keeper in team`);
-      return false;
-    }
-
-    console.log(`✅ Team constraints validation passed`);
-    return true;
-  }
-
-  /**
-   * Calculate team split (players per team)
-   */
-  private calculateTeamSplit(team: Player[]): Record<string, number> {
-    const teamCounts: Record<string, number> = {};
-    team.forEach(player => {
-      const teamName = player.team_name || 'Unknown';
-      teamCounts[teamName] = (teamCounts[teamName] || 0) + 1;
-    });
-    return teamCounts;
-  }
-
-  /**
-   * Validate and fix team composition if needed
-   */
-  private async validateAndFixTeamComposition(
-    team: Player[],
-    availableForSwap: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules']
-  ): Promise<Player[]> {
-    let fixedTeam = [...team];
-    
-    // Ensure we have exactly 11 players
-    if (fixedTeam.length > 11) {
-      fixedTeam = fixedTeam.slice(0, 11);
-    }
-    
-    // Ensure we have at least 1 wicket keeper
-    const hasWicketKeeper = fixedTeam.some(p => 
-      this.getPlayerRole(p.player_role) === 'wicketKeepers'
-    );
-    
-    if (!hasWicketKeeper) {
-      // Find a wicket keeper to add
-      const wicketKeeper = availableForSwap.find(p => 
-        this.getPlayerRole(p.player_role) === 'wicketKeepers'
-      );
-      
-      if (wicketKeeper) {
-        // Replace the worst performer
-        const worstPerformer = fixedTeam.reduce((worst, current) => 
-          this.getPlayerOptimizationScore(current, rules!.primaryParameter) < 
-          this.getPlayerOptimizationScore(worst, rules!.primaryParameter) ? current : worst
-        );
-        
-        fixedTeam = fixedTeam.map(p => 
-          p.id === worstPerformer.id ? wicketKeeper : p
-        );
-      }
-    }
-
-    return fixedTeam;
-  }
-
-  /**
-   * Select captain and vice-captain based on optimization parameter
-   */
-  private async selectCaptainAndViceCaptain(
-    team: Player[],
-    primaryParameter: 'dreamTeamPercentage' | 'selectionPercentage' | 'averagePoints',
-    teamIndex: number
-  ): Promise<{ captain: Player; viceCaptain: Player }> {
-    
-    if (team.length < 2) {
-      console.error('❌ Team has less than 2 players, cannot select captain and vice-captain');
-      return {
-        captain: team[0] || { id: 0, name: 'Unknown Captain', player_role: 'BAT' } as Player,
-        viceCaptain: team[0] || { id: 0, name: 'Unknown Vice-Captain', player_role: 'BAT' } as Player
-      };
-    }
-
-    // Sort by optimization score
-    const sortedByScore = [...team].sort((a, b) => {
-      const scoreA = this.getPlayerOptimizationScore(a, primaryParameter);
-      const scoreB = this.getPlayerOptimizationScore(b, primaryParameter);
-      return scoreB - scoreA;
-    });
-
-    // Add some variation based on team index but ensure different players
-    let captainIndex = teamIndex % Math.min(3, sortedByScore.length);
-    let viceCaptainIndex = (teamIndex + 1) % Math.min(3, sortedByScore.length);
-
-    // Ensure captain and vice-captain are different
-    if (captainIndex === viceCaptainIndex) {
-      if (sortedByScore.length > 1) {
-        viceCaptainIndex = (captainIndex + 1) % sortedByScore.length;
-      }
-    }
-
-    const captain = sortedByScore[captainIndex];
-    const viceCaptain = sortedByScore[viceCaptainIndex];
-
-    // Final safety check - if still same player, force different selection
-    if (captain.id === viceCaptain.id && sortedByScore.length > 1) {
-      console.log(`⚠️ Captain and vice-captain were same player (${captain.name}), forcing different selection`);
-      return {
-        captain: sortedByScore[0],
-        viceCaptain: sortedByScore[1]
-      };
-    }
-
-    console.log(`✅ Team ${teamIndex + 1} Captain: ${captain.name} (${captain.player_role}), Vice-Captain: ${viceCaptain.name} (${viceCaptain.player_role})`);
-    return { captain, viceCaptain };
-  }
-
-  /**
-   * Calculate risk score for base team variation
-   */
-  private calculateBaseTeamRiskScore(
-    team: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules']
-  ): number {
-    const riskFactors = {
-      conservative: 0.3,
-      medium: 0.5,
-      aggressive: 0.7
-    };
-
-    const baseRisk = riskFactors[rules!.preferences.riskTolerance];
-    
-    // Adjust based on edit intensity
-    const intensityMultiplier = {
-      minor: 1.0,
-      moderate: 1.2,
-      major: 1.4
-    };
-
-    return Math.min(baseRisk * intensityMultiplier[rules!.editIntensity], 1.0);
-  }
-
-  /**
-   * Calculate confidence for base team variation
-   */
-  private calculateBaseTeamConfidence(
-    team: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
-    teamIndex: number
-  ): number {
-    // Base confidence starts high since user selected the base team
-    let confidence = 85;
-
-    // Adjust based on optimization parameter alignment
-    const avgOptimizationScore = team.reduce((sum, p) => 
-      sum + this.getPlayerOptimizationScore(p, rules!.primaryParameter), 0
-    ) / team.length;
-
-    // Normalize score to 0-15 range
-    const normalizedScore = Math.min(avgOptimizationScore / 10, 1.5) * 10;
-    confidence += normalizedScore;
-
-    // Adjust based on edit intensity (more edits = slightly lower confidence)
-    const intensityAdjustment = {
-      minor: 0,
-      moderate: -3,
-      major: -5
-    };
-    confidence += intensityAdjustment[rules!.editIntensity];
-
-    // Add slight variation between teams
-    confidence += (teamIndex % 5) - 2;
-
-    return Math.max(Math.min(confidence, 95), 70);
-  }
-
-  /**
-   * Generate reasoning for base team variation
-   */
-  private generateBaseTeamReasoning(
-    finalTeam: Player[],
-    originalTeam: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
-    editCount: number
-  ): string {
-    const changedPlayers = finalTeam.filter(p => 
-      !originalTeam.some(op => op.id === p.id)
-    );
-
-    if (changedPlayers.length === 0) {
-      return `Maintained original base team composition optimized for ${rules!.primaryParameter.replace(/([A-Z])/g, ' $1').toLowerCase()}.`;
-    }
-
-    const changesList = changedPlayers.map(p => p.name).join(', ');
-    const intensityDesc = {
-      minor: 'minimal adjustments',
-      moderate: 'strategic changes',
-      major: 'comprehensive optimization'
-    };
-
-    return `Applied ${intensityDesc[rules!.editIntensity]} with ${editCount} edits. Key additions: ${changesList}. Optimized for ${rules!.primaryParameter.replace(/([A-Z])/g, ' $1').toLowerCase()} with ${rules!.preferences.riskTolerance} risk tolerance.`;
-  }
-
-  /**
-   * Generate insights for base team variation
-   */
-  private generateBaseTeamInsights(
-    team: Player[],
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
-    teamIndex: number
-  ): string[] {
-    const insights: string[] = [];
-
-    // Role balance insight
-    const roleBalance = this.calculateTeamRoleBalance(team);
-    insights.push(`Role composition: ${roleBalance.batsmen} BAT, ${roleBalance.bowlers} BWL, ${roleBalance.allRounders} AR, ${roleBalance.wicketKeepers} WK`);
-
-    // Credit utilization insight
-    const totalCredits = team.reduce((sum, p) => sum + (p.credits || 0), 0);
-    const creditUtilization = (totalCredits / rules!.guardrails.maxCredits) * 100;
-    insights.push(`Credit utilization: ${creditUtilization.toFixed(1)}% (${totalCredits.toFixed(1)}/${rules!.guardrails.maxCredits})`);
-
-    // Optimization parameter insight
-    const avgScore = team.reduce((sum, p) => 
-      sum + this.getPlayerOptimizationScore(p, rules!.primaryParameter), 0
-    ) / team.length;
-    insights.push(`Average ${rules!.primaryParameter.replace(/([A-Z])/g, ' $1').toLowerCase()}: ${avgScore.toFixed(1)}`);
-
-    // Team split insight
-    const teamSplit = this.calculateTeamSplit(team);
-    const teamSplitDesc = Object.entries(teamSplit)
-      .map(([team, count]) => `${team}: ${count}`)
-      .join(', ');
-    insights.push(`Team distribution: ${teamSplitDesc}`);
-
-    // Strategy-specific insight
-    const strategyInsight = this.getStrategySpecificInsight(rules!, teamIndex);
-    if (strategyInsight) {
-      insights.push(strategyInsight);
-    }
-
-    return insights;
-  }
-
-  /**
-   * Get strategy-specific insight
-   */
-  private getStrategySpecificInsight(
-    rules: NonNullable<TeamGenerationRequest['userPreferences']>['optimizationRules'],
-    teamIndex: number
-  ): string | null {
-    const strategy = this.getOptimizationStrategy(rules!.primaryParameter, teamIndex);
-    
-    switch (strategy) {
-      case 'elite-performers':
-        return 'Focused on top-tier performers with proven track records';
-      case 'value-finds':
-        return 'Optimized for best points-per-credit value picks';
-      case 'low-ownership':
-        return 'Targeting differential picks with lower ownership';
-      case 'form-based':
-        return 'Prioritizing players with recent strong performances';
-      default:
-        return null;
-    }
-  }
-
-  /**
-   * Get player role from role string
-   */
-  private getPlayerRole(role: string): 'batsmen' | 'bowlers' | 'allRounders' | 'wicketKeepers' {
-    if (role.includes('BAT')) return 'batsmen';
-    if (role.includes('BWL')) return 'bowlers';
-    if (role.includes('AR')) return 'allRounders';
-    if (role.includes('WK')) return 'wicketKeepers';
-    return 'allRounders';
+    return entries;
   }
 }
 
