@@ -3,6 +3,8 @@ import { geminiService } from './gemini';
 import { neonDB, Player, Match } from './neon-db';
 import { SportRadarMatch, SportRadarPlayer } from './sportradar';
 import { MatchAnalysis } from './openai';
+// Import preset strategy service for Strategy 6
+import { presetStrategyService } from './preset-strategy-service';
 
 // Import Dream11 validation from data-integration
 import Dream11TeamValidator, { DREAM11_RULES, TeamComposition } from './dream11-validator';
@@ -86,6 +88,21 @@ export interface TeamGenerationRequest {
     team1Name?: string;
     team2Name?: string;
     aiAnalysis?: any;
+    // For Strategy 6 preset scenarios
+    preset?: {
+      id: string;
+      name: string;
+      description: string;
+      strategy: string;
+      focus: Record<string, any>;
+      riskLevel: 'low' | 'medium' | 'high';
+      tags: string[];
+      constraints: any;
+    };
+    teamNames?: {
+      teamA: string;
+      teamB: string;
+    };
   };
 }
 
@@ -328,6 +345,11 @@ class AIService {
         return this.generateSameXITeams(request);
       }
 
+      // Handle preset scenarios strategy (Strategy 6)
+      if (request.strategy === 'preset-scenarios' && request.userPreferences?.preset) {
+        return this.generatePresetScenarioTeams(request);
+      }
+
       const recommendations = await this.generateAIPlayerRecommendations(request.matchId);
       const teams: AITeamAnalysis[] = [];
 
@@ -377,6 +399,7 @@ class AIService {
 
     // Select players for each role according to target composition
     Object.entries(targetComposition).forEach(([role, count]) => {
+      const roleCount = count as number;
       const rolePlayers = playersByRole[role as keyof typeof playersByRole] || [];
       
       // Apply strategy-specific selection logic
@@ -384,7 +407,7 @@ class AIService {
       
       let selected = 0;
       for (const rec of strategyFilteredPlayers) {
-        if (selected >= count) break;
+        if (selected >= roleCount) break;
         
         const player = rec.player;
         const playerCredits = player.credits || 8;
@@ -1027,6 +1050,41 @@ class AIService {
     return Promise.resolve([]);
   }
 
+  private async generatePresetScenarioTeams(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
+    const { preset, teamNames } = request.userPreferences!;
+    
+    if (!preset || !teamNames) {
+      throw new Error('Invalid preset data: need preset configuration and team names');
+    }
+
+    console.log(`🎯 Generating preset scenario teams with: ${preset.name}`);
+
+    try {
+      // Use the preset strategy service to generate teams
+      const teams = await presetStrategyService.generatePresetTeams({
+        matchId: request.matchId,
+        presetId: preset.id,
+        teamCount: request.teamCount,
+        teamNames,
+        matchConditions: request.userPreferences?.matchConditions
+      });
+
+      return teams;
+    } catch (error) {
+      console.error('Error generating preset scenario teams:', error);
+      // Fallback to regular team generation
+      const recommendations = await this.generateAIPlayerRecommendations(request.matchId);
+      const teams: AITeamAnalysis[] = [];
+
+      for (let i = 0; i < request.teamCount; i++) {
+        const team = await this.generateSingleTeam(recommendations, request, i);
+        teams.push(team);
+      }
+
+      return teams;
+    }
+  }
+
   private applyStrategyFiltering(
     recommendations: AIPlayerRecommendation[],
     request: TeamGenerationRequest,
@@ -1296,6 +1354,7 @@ class AIService {
     
     // Select players for each role
     Object.entries(targetComposition).forEach(([role, count]) => {
+      const roleCount = count as number;
       const rolePlayers = playersByRole[role as keyof typeof playersByRole] || [];
       
       // Apply team-specific selection strategy for variation
@@ -1303,7 +1362,7 @@ class AIService {
       
       let selected = 0;
       for (const rec of strategyFilteredPlayers) {
-        if (selected >= count) break;
+        if (selected >= roleCount) break;
         
         const player = rec.player;
         const playerCredits = player.credits || 8;
