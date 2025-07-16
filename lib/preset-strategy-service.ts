@@ -153,14 +153,15 @@ class PresetStrategyService {
 
     const teams: AITeamAnalysis[] = [];
 
-    // Generate teams based on preset configuration
+    // Generate teams based on preset configuration with diversity enforcement
     for (let i = 0; i < request.teamCount; i++) {
-      const team = await this.generatePresetTeam(
+      const team = await this.generatePresetTeamWithDiversity(
         preset,
         players,
         match,
         request,
-        i
+        i,
+        teams // Pass existing teams to ensure diversity
       );
       teams.push(team);
     }
@@ -172,6 +173,92 @@ class PresetStrategyService {
     return this.presetConfigurations.find(p => p.id === presetId) || null;
   }
 
+  private async generatePresetTeamWithDiversity(
+    preset: PresetConfiguration,
+    players: Player[],
+    match: Match,
+    request: PresetTeamRequest,
+    teamIndex: number,
+    existingTeams: AITeamAnalysis[]
+  ): Promise<AITeamAnalysis> {
+    console.log(`🏏 Generating diverse preset team ${teamIndex + 1} using ${preset.name}`);
+
+    const maxAttempts = 50; // Maximum attempts to find a diverse team
+    let attempts = 0;
+    let bestTeam: AITeamAnalysis | null = null;
+    let bestDiversityScore = -1;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      
+      // Generate a candidate team
+      const candidateTeam = await this.generatePresetTeam(
+        preset,
+        players,
+        match,
+        request,
+        teamIndex + attempts * 1000 // Use attempts to vary team generation
+      );
+
+      // Calculate diversity score against existing teams
+      const diversityScore = this.calculateTeamDiversityScore(candidateTeam, existingTeams);
+      
+      console.log(`🔍 Attempt ${attempts}: Diversity score ${diversityScore.toFixed(2)}% for team ${teamIndex + 1}`);
+
+      // If this team meets the 25% diversity requirement, use it
+      if (diversityScore >= 25.0) {
+        console.log(`✅ Team ${teamIndex + 1} meets 25% diversity requirement (${diversityScore.toFixed(2)}%)`);
+        return candidateTeam;
+      }
+
+      // Keep track of the best team found so far
+      if (diversityScore > bestDiversityScore) {
+        bestDiversityScore = diversityScore;
+        bestTeam = candidateTeam;
+      }
+    }
+
+    // If we couldn't find a team with 25% diversity, use the best one found
+    if (bestTeam) {
+      console.log(`⚠️ Using best team found for team ${teamIndex + 1} with ${bestDiversityScore.toFixed(2)}% diversity`);
+      return bestTeam;
+    }
+
+    // Fallback: generate a basic team
+    console.log(`⚠️ Fallback: generating basic team for team ${teamIndex + 1}`);
+    return await this.generatePresetTeam(preset, players, match, request, teamIndex);
+  }
+
+  private calculateTeamDiversityScore(candidateTeam: AITeamAnalysis, existingTeams: AITeamAnalysis[]): number {
+    if (existingTeams.length === 0) {
+      return 100; // First team is always 100% diverse
+    }
+
+    let totalDiversityScore = 0;
+    
+    // Calculate diversity against each existing team
+    for (const existingTeam of existingTeams) {
+      const diversityScore = this.calculatePairwiseDiversityScore(candidateTeam, existingTeam);
+      totalDiversityScore += diversityScore;
+    }
+
+    // Return average diversity score
+    return totalDiversityScore / existingTeams.length;
+  }
+
+  private calculatePairwiseDiversityScore(team1: AITeamAnalysis, team2: AITeamAnalysis): number {
+    const team1PlayerIds = new Set(team1.players.map(p => p.id));
+    const team2PlayerIds = new Set(team2.players.map(p => p.id));
+    
+    // Count different players
+    const differentPlayers = Array.from(team1PlayerIds).filter(id => !team2PlayerIds.has(id)).length;
+    
+    // Calculate percentage difference (11 total players)
+    const diversityPercentage = (differentPlayers / 11) * 100;
+    
+    return diversityPercentage;
+  }
+
   private async generatePresetTeam(
     preset: PresetConfiguration,
     players: Player[],
@@ -181,7 +268,7 @@ class PresetStrategyService {
   ): Promise<AITeamAnalysis> {
     console.log(`🏏 Generating preset team ${teamIndex + 1} using ${preset.name}`);
 
-    // Apply preset-specific player selection logic
+    // Apply preset-specific player selection logic with variation
     const selectedPlayers = this.selectPlayersForPreset(preset, players, teamIndex);
     
     // Ensure we have exactly 11 players
@@ -191,7 +278,8 @@ class PresetStrategyService {
     while (finalPlayers.length < 11) {
       const remainingPlayers = players.filter(p => !finalPlayers.some(fp => fp.id === p.id));
       if (remainingPlayers.length > 0) {
-        finalPlayers.push(remainingPlayers[Math.floor(Math.random() * remainingPlayers.length)]);
+        const randomIndex = Math.floor(Math.random() * remainingPlayers.length);
+        finalPlayers.push(remainingPlayers[randomIndex]);
       } else {
         break;
       }
@@ -219,7 +307,7 @@ class PresetStrategyService {
       insights: [
         `Strategy: ${preset.strategy}`,
         `Risk Level: ${preset.riskLevel}`,
-        `Focus: ${Object.entries(preset.focus).map(([k, v]) => `${k}: ${((v as number) * 100).toFixed(0)}%`).join(', ')}`,
+        `Focus: ${Object.entries(preset.focus).map(([k, v]) => `${k}: ${v}`).join(', ')}`,
         `Tags: ${preset.tags.join(', ')}`
       ]
     };
@@ -245,109 +333,136 @@ class PresetStrategyService {
     console.log(`📊 Team A (${teamNames[0]}): ${teamAPlayers.length} players`);
     console.log(`📊 Team B (${teamNames[1]}): ${teamBPlayers.length} players`);
 
-    // Select based on preset strategy
+    // Select based on preset strategy with variation based on teamIndex
     switch (preset.strategy) {
       case 'team-a-batting-heavy':
-        // Stack Team A batsmen, Team B bowlers
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.WK, 1));
-        selectedPlayers.push(...this.selectTopPlayers(teamAPlayers.filter(p => p.player_role === 'BAT'), 4));
-        selectedPlayers.push(...this.selectTopPlayers(teamAPlayers.filter(p => p.player_role === 'AR'), 2));
-        selectedPlayers.push(...this.selectTopPlayers(teamBPlayers.filter(p => p.player_role === 'BWL'), 3));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BWL, 1));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.WK, 1, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(teamAPlayers.filter(p => p.player_role === 'BAT'), 4, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(teamAPlayers.filter(p => p.player_role === 'AR'), 2, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(teamBPlayers.filter(p => p.player_role === 'BWL'), 3, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BWL, 1, teamIndex));
         break;
       
       case 'team-b-batting-heavy':
-        // Stack Team B batsmen, Team A bowlers
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.WK, 1));
-        selectedPlayers.push(...this.selectTopPlayers(teamBPlayers.filter(p => p.player_role === 'BAT'), 4));
-        selectedPlayers.push(...this.selectTopPlayers(teamBPlayers.filter(p => p.player_role === 'AR'), 2));
-        selectedPlayers.push(...this.selectTopPlayers(teamAPlayers.filter(p => p.player_role === 'BWL'), 3));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BWL, 1));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.WK, 1, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(teamBPlayers.filter(p => p.player_role === 'BAT'), 4, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(teamBPlayers.filter(p => p.player_role === 'AR'), 2, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(teamAPlayers.filter(p => p.player_role === 'BWL'), 3, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BWL, 1, teamIndex));
         break;
       
       case 'differential':
-        // Select lower-owned players with high upside
-        selectedPlayers.push(...this.selectDifferentialPlayers(playersByRole.WK, 1));
-        selectedPlayers.push(...this.selectDifferentialPlayers(playersByRole.BAT, 4));
-        selectedPlayers.push(...this.selectDifferentialPlayers(playersByRole.AR, 2));
-        selectedPlayers.push(...this.selectDifferentialPlayers(playersByRole.BWL, 4));
+        selectedPlayers.push(...this.selectDifferentialPlayersWithVariation(playersByRole.WK, 1, teamIndex));
+        selectedPlayers.push(...this.selectDifferentialPlayersWithVariation(playersByRole.BAT, 4, teamIndex));
+        selectedPlayers.push(...this.selectDifferentialPlayersWithVariation(playersByRole.AR, 2, teamIndex));
+        selectedPlayers.push(...this.selectDifferentialPlayersWithVariation(playersByRole.BWL, 4, teamIndex));
         break;
       
       case 'balanced':
-        // Traditional balanced composition: 4 BAT, 3 BOWL, 2 AR, 1 WK
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.WK, 1));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BAT, 4));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.AR, 2));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BWL, 4));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.WK, 1, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BAT, 4, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.AR, 2, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BWL, 4, teamIndex));
         break;
       
       case 'all-rounder-heavy':
-        // Stack all-rounders for maximum versatility
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.WK, 1));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BAT, 2));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.AR, 4));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BWL, 4));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.WK, 1, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BAT, 2, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.AR, 4, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BWL, 4, teamIndex));
         break;
       
       case 'top-order-batting':
-        // Focus on top-order batsmen (use points as proxy for batting order)
         const topOrderBatsmen = playersByRole.BAT
           .sort((a, b) => (b.points || 0) - (a.points || 0))
-          .slice(0, 6); // Take top 6 batsmen as "top order"
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.WK, 1));
-        selectedPlayers.push(...this.selectTopPlayers(topOrderBatsmen, 4));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.AR, 2));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BWL, 4));
+          .slice(0, 8); // Take top 8 batsmen as "top order"
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.WK, 1, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(topOrderBatsmen, 4, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.AR, 2, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BWL, 4, teamIndex));
         break;
       
       case 'bowling-heavy':
-        // Bowler-heavy lineup for low-scoring conditions
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.WK, 1));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BAT, 3));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.AR, 2));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BWL, 5));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.WK, 1, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BAT, 3, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.AR, 2, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BWL, 5, teamIndex));
         break;
       
       case 'death-overs':
-        // Focus on death overs specialists (use high point bowlers and all-rounders)
         const deathBowlers = playersByRole.BWL
           .sort((a, b) => (b.points || 0) - (a.points || 0))
           .slice(0, 8); // Take top bowlers as "death specialists"
         const finishers = [...playersByRole.BAT, ...playersByRole.AR]
           .sort((a, b) => (b.points || 0) - (a.points || 0))
           .slice(0, 8); // Take top finishers
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.WK, 1));
-        selectedPlayers.push(...this.selectTopPlayers(finishers, 4));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.AR, 2));
-        selectedPlayers.push(...this.selectTopPlayers(deathBowlers, 4));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.WK, 1, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(finishers, 4, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.AR, 2, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(deathBowlers, 4, teamIndex));
         break;
       
       default:
-        // Default balanced approach
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.WK, 1));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BAT, 4));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.AR, 2));
-        selectedPlayers.push(...this.selectTopPlayers(playersByRole.BWL, 4));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.WK, 1, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BAT, 4, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.AR, 2, teamIndex));
+        selectedPlayers.push(...this.selectTopPlayersWithVariation(playersByRole.BWL, 4, teamIndex));
         break;
     }
 
     return selectedPlayers;
   }
 
-  private selectTopPlayers(rolePlayers: Player[], count: number): Player[] {
-    return rolePlayers
-      .sort((a, b) => (b.points || 0) - (a.points || 0))
-      .slice(0, count);
+  private selectTopPlayersWithVariation(rolePlayers: Player[], count: number, teamIndex: number): Player[] {
+    const sortedPlayers = rolePlayers.sort((a, b) => (b.points || 0) - (a.points || 0));
+    const availablePool = Math.min(sortedPlayers.length, count * 3); // Expand pool for variation
+    
+    // Use teamIndex to vary selection within the pool
+    const selectedPlayers: Player[] = [];
+    const usedIndices = new Set<number>();
+    
+    for (let i = 0; i < count && i < sortedPlayers.length; i++) {
+      let index = (teamIndex + i) % availablePool;
+      
+      // Ensure we don't pick the same player twice
+      while (usedIndices.has(index) && usedIndices.size < availablePool) {
+        index = (index + 1) % availablePool;
+      }
+      
+      if (index < sortedPlayers.length) {
+        selectedPlayers.push(sortedPlayers[index]);
+        usedIndices.add(index);
+      }
+    }
+    
+    return selectedPlayers;
   }
 
-  private selectDifferentialPlayers(rolePlayers: Player[], count: number): Player[] {
-    return rolePlayers
-      .sort((a, b) => {
-        const aScore = (a.points || 0) - (a.selection_percentage || 0);
-        const bScore = (b.points || 0) - (b.selection_percentage || 0);
-        return bScore - aScore;
-      })
-      .slice(0, count);
+  private selectDifferentialPlayersWithVariation(rolePlayers: Player[], count: number, teamIndex: number): Player[] {
+    const sortedPlayers = rolePlayers.sort((a, b) => {
+      const aScore = (a.points || 0) - (a.selection_percentage || 0);
+      const bScore = (b.points || 0) - (b.selection_percentage || 0);
+      return bScore - aScore;
+    });
+    
+    const availablePool = Math.min(sortedPlayers.length, count * 3);
+    const selectedPlayers: Player[] = [];
+    const usedIndices = new Set<number>();
+    
+    for (let i = 0; i < count && i < sortedPlayers.length; i++) {
+      let index = (teamIndex + i) % availablePool;
+      
+      while (usedIndices.has(index) && usedIndices.size < availablePool) {
+        index = (index + 1) % availablePool;
+      }
+      
+      if (index < sortedPlayers.length) {
+        selectedPlayers.push(sortedPlayers[index]);
+        usedIndices.add(index);
+      }
+    }
+    
+    return selectedPlayers;
   }
 
   private selectCaptainsForPreset(preset: PresetConfiguration, players: Player[], teamIndex: number): { captain: Player; viceCaptain: Player } {
@@ -363,14 +478,15 @@ class PresetStrategyService {
     // Sort by points for basic captain selection
     const sortedCandidates = captainCandidates.sort((a, b) => (b.points || 0) - (a.points || 0));
     
-    // Vary captain selection based on team index
-    const captainIndex = teamIndex % sortedCandidates.length;
-    const viceCaptainIndex = (teamIndex + 1) % sortedCandidates.length;
+    // Vary captain selection based on team index to ensure diversity
+    const candidatePool = Math.min(sortedCandidates.length, 6); // Use top 6 candidates
+    const captainIndex = teamIndex % candidatePool;
+    const viceCaptainIndex = (teamIndex + 1) % candidatePool;
 
     return {
       captain: sortedCandidates[captainIndex],
       viceCaptain: sortedCandidates[viceCaptainIndex === captainIndex ? 
-        (viceCaptainIndex + 1) % sortedCandidates.length : viceCaptainIndex]
+        (viceCaptainIndex + 1) % candidatePool : viceCaptainIndex]
     };
   }
 

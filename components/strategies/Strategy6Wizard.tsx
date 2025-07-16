@@ -336,7 +336,17 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
           <li>• Captaincy suggestions based on scenario expectations</li>
           <li>• Risk management according to preset risk level</li>
           <li>• Condition-based adjustments for pitch and weather</li>
+          <li>• <strong>Team Diversity:</strong> Each team will have at least 25% different players from other teams</li>
         </ul>
+      </div>
+
+      <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 mb-6">
+        <h4 className="font-semibold text-blue-800 mb-2">🎯 Strategy 6 Enhancement:</h4>
+        <p className="text-sm text-blue-700">
+          <strong>Diversity Guarantee:</strong> Our algorithm ensures that every team created will have at least 25% different players 
+          compared to other teams in the same preset. This maximizes your chances across different player combinations while 
+          maintaining the core strategy focus.
+        </p>
       </div>
 
       <div className="mt-6 flex justify-between items-center">
