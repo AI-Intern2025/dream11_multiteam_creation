@@ -34,6 +34,7 @@ export default function TeamsPage() {
 
   // State to control strategy wizard and generation
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const {
     teams,
     loading,
@@ -43,12 +44,22 @@ export default function TeamsPage() {
   } = useTeamGeneration();
   const { data: matchData } = useMatchData(matchId);
 
-  // Handler to trigger teaism generation from wizard
+  // Handler to trigger team generation from wizard
   const onGenerate = async (userPreferences: any, teamCount: number) => {
-    setHasGenerated(false);
-    const strategyName = userPreferences?.strategy || strategy || 'strategy1';
-    await generateTeams(matchId, strategyName, teamCount, userPreferences);
-    setHasGenerated(true);
+    try {
+      setHasGenerated(false);
+      setGenerationError(null);
+      const strategyName = userPreferences?.strategy || strategy || 'strategy1';
+      const generatedTeams = await generateTeams(matchId, strategyName, teamCount, userPreferences);
+      
+      if (generatedTeams && generatedTeams.length > 0) {
+        setHasGenerated(true);
+      } else {
+        setGenerationError(`Failed to generate teams using ${strategy} strategy. Please try again or choose a different strategy.`);
+      }
+    } catch (err) {
+      setGenerationError(`Error generating teams: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -252,6 +263,55 @@ export default function TeamsPage() {
 
   // If no teams generated yet, show appropriate strategy wizard
   if (!hasGenerated) {
+    // Show error if generation failed
+    if (generationError) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+          <header className="gradient-bg text-white shadow-xl">
+            <div className="container mx-auto px-4 py-6">
+              <div className="flex items-center space-x-4">
+                <Link href={`/match/${matchId}`}>
+                  <Button variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-black">
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
+                  </Button>
+                </Link>
+                <div>
+                  <h1 className="text-2xl font-bold">Team Generation Error</h1>
+                  <p className="text-gray-300">Strategy {strategy} failed to generate teams</p>
+                </div>
+              </div>
+            </div>
+          </header>
+          <main className="container mx-auto px-4 py-8">
+            <Card className="max-w-2xl mx-auto">
+              <CardHeader>
+                <CardTitle className="text-red-600">Generation Failed</CardTitle>
+                <CardDescription>There was an issue generating teams with the selected strategy</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-md">
+                    <p className="text-red-700">{generationError}</p>
+                  </div>
+                  <div className="flex gap-4">
+                    <Button onClick={() => { setGenerationError(null); setHasGenerated(false); }} className="flex-1">
+                      Try Again
+                    </Button>
+                    <Link href={`/match/${matchId}`} className="flex-1">
+                      <Button variant="outline" className="w-full">
+                        Choose Different Strategy
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </main>
+        </div>
+      );
+    }
+
     // Strategy routing logic
     switch (strategy) {
       case 'ai-guided':

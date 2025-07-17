@@ -97,7 +97,38 @@ export default function Strategy8Wizard({ matchId, onGenerate }: Strategy8Wizard
   };
 
   const handleGenerateTeams = () => {
+    // Validate base team is complete
+    if (baseTeam.length !== 11) {
+      alert(`Please select exactly 11 players for your base team. Currently selected: ${baseTeam.length}`);
+      return;
+    }
+
+    // Validate Dream11 constraints
+    const roles = { BAT: 0, BWL: 0, AR: 0, WK: 0 };
+    baseTeam.forEach(player => {
+      if (player.player_role in roles) {
+        roles[player.player_role as keyof typeof roles]++;
+      }
+    });
+
+    if (roles.WK === 0) {
+      alert('Your base team must include at least 1 wicket-keeper.');
+      return;
+    }
+
+    if (roles.BAT + roles.BWL + roles.AR + roles.WK !== 11) {
+      alert('Invalid team composition. Please ensure all players have valid roles.');
+      return;
+    }
+
+    const totalCredits = getTotalCredits();
+    if (totalCredits > 100) {
+      alert(`Team exceeds credit limit. Current total: ${totalCredits.toFixed(1)}, Maximum: 100.0`);
+      return;
+    }
+
     const strategyData = {
+      strategy: 'base-edit',
       baseTeam,
       optimizationRules,
       teamNames: { team1: team1Name, team2: team2Name },

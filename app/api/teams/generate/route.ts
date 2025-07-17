@@ -86,12 +86,27 @@ export async function POST(request: NextRequest) {
     });
 
     if (!teams || teams.length === 0) {
-      console.log(`❌ No teams generated for match ${matchId}`);
+      console.log(`❌ No teams generated for match ${matchId} with strategy ${strategy}`);
+      
+      // Provide more specific error message based on strategy
+      let errorMessage = 'Unable to generate teams. This may be due to insufficient match data or API issues.';
+      
+      if (strategy === 'base-edit' || strategy === 'strategy8' || strategy === 'iterative-editing') {
+        errorMessage = 'Strategy 8 (Base Team + Rule-Based Edits) requires a complete 11-player base team and optimization rules. Please ensure you have selected a valid base team.';
+      } else if (strategy === 'same-xi' || strategy === 'strategy2' || strategy === 'captain-rotation') {
+        errorMessage = 'Strategy 2 (Same XI, Different Captains) requires 11 selected players and captain/vice-captain combinations that total 100%. Please check your selections.';
+      } else if (strategy === 'stats-driven' || strategy === 'strategy5') {
+        errorMessage = 'Strategy 5 (Stats-Driven Guardrails) requires statistical filter criteria. Please set appropriate filters for player selection.';
+      } else if (strategy === 'core-hedge' || strategy === 'strategy4') {
+        errorMessage = 'Strategy 4 (Core-Hedge Selection) requires core and hedge player selections. Please select your core and hedge players.';
+      }
+      
       return NextResponse.json(
         {
           success: false,
           error: 'Team generation failed',
-          message: 'Unable to generate teams. This may be due to insufficient match data or API issues.',
+          message: errorMessage,
+          strategy: strategy,
           retryable: true
         },
         { status: 422 }

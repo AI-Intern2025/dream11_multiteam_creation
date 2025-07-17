@@ -219,7 +219,7 @@ export default function Strategy3Wizard({ matchId, onGenerate }: Strategy3Wizard
                     </Select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Wickets They'll Concede</label>
+                    <label className="block text-sm font-medium mb-1">Wickets They&apos;ll Concede</label>
                     <Select value={userPredictions.teamA?.wicketsConceded} onValueChange={(value) => 
                       setUserPredictions((prev: any) => ({...prev, teamA: {...prev.teamA, wicketsConceded: value}}))
                     }>
@@ -253,7 +253,7 @@ export default function Strategy3Wizard({ matchId, onGenerate }: Strategy3Wizard
                     </Select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Wickets They'll Concede</label>
+                    <label className="block text-sm font-medium mb-1">Wickets They&apos;ll Concede</label>
                     <Select value={userPredictions.teamB?.wicketsConceded} onValueChange={(value) => 
                       setUserPredictions((prev: any) => ({...prev, teamB: {...prev.teamB, wicketsConceded: value}}))
                     }>

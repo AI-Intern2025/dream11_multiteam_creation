@@ -7,6 +7,7 @@ const mockAdvancedPlayers: Player[] = [
   {
     id: 1,
     name: 'Virat Kohli',
+    full_name: 'Virat Kohli',
     player_role: 'BAT',
     credits: 11.5,
     points: 85,
@@ -15,6 +16,8 @@ const mockAdvancedPlayers: Player[] = [
     team_name: 'RCB',
     country: 'India',
     is_playing_today: true,
+    batting_style: 'Right-hand bat',
+    bowling_style: 'Right-arm medium',
     // Advanced stats
     recent_form_rating: 0.88,
     consistency_score: 0.82,

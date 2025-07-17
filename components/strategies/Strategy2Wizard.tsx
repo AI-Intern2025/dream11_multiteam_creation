@@ -333,11 +333,17 @@ export default function Strategy2Wizard({ matchId, onGenerate }: Strategy2Wizard
                   return;
                 }
                 
+                console.log('Strategy 2 - Generating teams with:', {
+                  strategy: 'same-xi',
+                  players: selectedPlayers,
+                  combos: validCombos,
+                  teamCount
+                });
+                
                 onGenerate({ 
                   strategy: 'same-xi',
                   players: selectedPlayers, 
-                  combos: validCombos,
-                  teamCount 
+                  combos: validCombos
                 }, teamCount);
               }} 
               className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white shadow-lg"

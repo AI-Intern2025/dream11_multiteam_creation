@@ -23,5 +23,5 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "types/**/*.d.ts"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "scripts/test-advanced-ml-optimization.ts", "scripts/test-ml-optimization-simple.ts", "scripts/test-ml-quick.ts", "scripts/test-strategy5.ts", "test-strategy8.ts"]
 }

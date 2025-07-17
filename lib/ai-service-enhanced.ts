@@ -22,6 +22,15 @@ export interface TeamGenerationRequest {
     differentialPlayers?: string[]; // 1-2 teams - high differential
     corePercentage?: number; // percentage of teams with core players
     hedgePercentage?: number; // percentage of teams with hedge players
+    
+    // Strategy 4 - New data structure from frontend
+    selections?: {
+      core: any[];
+      hedge: any[];
+      differential: any[];
+    };
+    captainOrder?: string[];
+    
     // Strategy 5 - Enhanced Stats-driven filters
     filters?: {
       // Core Statistical Filters
@@ -407,6 +416,9 @@ export class AIService {
       // Handle base team + rule-based edits (Strategy 8)
       if ((request.strategy === 'base-edit' || request.strategy === 'strategy8' || request.strategy === 'iterative-editing') && 
           request.userPreferences?.baseTeam && request.userPreferences?.optimizationRules) {
+        console.log('🎯 Strategy 8: Processing base team variations');
+        console.log('Base team length:', request.userPreferences.baseTeam.length);
+        console.log('Optimization rules:', request.userPreferences.optimizationRules);
         return this.generateBaseTeamVariations(request);
       }
 
@@ -423,6 +435,169 @@ export class AIService {
       console.error('Error generating AI teams:', error);
       return [];
     }
+  }
+
+  private selectCorePlayersWithVariation(
+    playersByRole: { WK: any[], BAT: any[], AR: any[], BWL: any[] },
+    config: any,
+    teamIndex: number,
+    match: Match
+  ): Player[] {
+    console.log(`🎯 Core + Variation selection for team ${teamIndex + 1} (targeting 25%+ variation)`);
+    
+    const selectedPlayers: Player[] = [];
+    const targetVariationPercentage = 25; // Minimum 25% variation
+    const targetVariationPlayers = Math.ceil(11 * (targetVariationPercentage / 100)); // ~3 players minimum
+    
+    // Define core and swap pools for each role based on preset requirements
+    const roleRequirements = this.getRoleRequirements(config);
+    
+    for (const [role, requiredCount] of Object.entries(roleRequirements)) {
+      if (requiredCount === 0) continue;
+      
+      const availablePlayers = playersByRole[role as keyof typeof playersByRole] || [];
+      if (availablePlayers.length === 0) continue;
+      
+      console.log(`📊 ${role}: Need ${requiredCount}, Available ${availablePlayers.length}`);
+      
+      // For Team 1 (teamIndex 0): Select top players as "core"
+      if (teamIndex === 0) {
+        const coreSelections = availablePlayers.slice(0, requiredCount);
+        selectedPlayers.push(...coreSelections);
+        console.log(`  🎯 Team 1 Core: Selected top ${coreSelections.length} ${role} players`);
+      } else {
+        // For subsequent teams: Mix core players with variations
+        const coreCount = Math.max(1, requiredCount - Math.ceil(requiredCount * 0.4)); // Keep 60% as core
+        const variationCount = requiredCount - coreCount;
+        
+        // Select core players (top performers)
+        const coreSelections = availablePlayers.slice(0, coreCount);
+        selectedPlayers.push(...coreSelections);
+        
+        // Create variation pool from remaining qualified players
+        const variationPool = availablePlayers.slice(coreCount);
+        
+        if (variationPool.length > 0 && variationCount > 0) {
+          // Systematic variation based on team index
+          const variationSelections = this.selectVariationPlayers(
+            variationPool,
+            variationCount,
+            teamIndex,
+            role,
+            config
+          );
+          selectedPlayers.push(...variationSelections);
+          
+          console.log(`  🔄 Team ${teamIndex + 1}: ${coreCount} core + ${variationSelections.length} variation ${role} players`);
+        } else {
+          // Not enough variation pool, take remaining from top
+          const fallbackSelections = availablePlayers.slice(coreCount, requiredCount);
+          selectedPlayers.push(...fallbackSelections);
+          console.log(`  ⚠️ Team ${teamIndex + 1}: Limited variation pool for ${role}, using fallback`);
+        }
+      }
+    }
+    
+    console.log(`✅ Selected ${selectedPlayers.length}/11 players with core+variation strategy`);
+    return selectedPlayers;
+  }
+
+  private getRoleRequirements(config: any): { [key: string]: number } {
+    // Default role requirements based on configuration
+    let requirements: { [key: string]: number } = {
+      'WK': config.wicketKeepers || 1,
+      'BAT': (config.topOrderBatsmen || 0) + (config.middleOrderBatsmen || 0) + (config.lowerOrderBatsmen || 0),
+      'AR': config.allRounders || 1,
+      'BWL': (config.spinners || 0) + (config.pacers || 0)
+    };
+    
+    // Preset-specific adjustments
+    if (config.preset === 'all-rounder-heavy') {
+      requirements['AR'] = Math.min(4, requirements['AR'] + 1);
+      requirements['BAT'] = Math.max(2, requirements['BAT'] - 1);
+    } else if (config.preset === 'top-order-stack') {
+      requirements['BAT'] = Math.min(5, requirements['BAT'] + 1);
+      requirements['BWL'] = Math.max(3, requirements['BWL'] - 1);
+    } else if (config.preset === 'bowling-special') {
+      requirements['BWL'] = Math.min(5, requirements['BWL'] + 1);
+      requirements['BAT'] = Math.max(2, requirements['BAT'] - 1);
+    }
+    
+    // Ensure total equals 11
+    const total = Object.values(requirements).reduce((sum, count) => sum + count, 0);
+    if (total !== 11) {
+      console.warn(`⚠️ Role requirements total ${total}, adjusting to 11`);
+      // Adjust the largest role requirement
+      const maxRole = Object.keys(requirements).reduce((a, b) => 
+        requirements[a] > requirements[b] ? a : b
+      );
+      requirements[maxRole] += (11 - total);
+    }
+    
+    return requirements;
+  }
+
+  private selectVariationPlayers(
+    variationPool: any[],
+    count: number,
+    teamIndex: number,
+    role: string,
+    config: any
+  ): Player[] {
+    if (variationPool.length === 0 || count === 0) return [];
+    
+    const selections: Player[] = [];
+    
+    // Create deterministic but varied selection based on team index
+    for (let i = 0; i < count && i < variationPool.length; i++) {
+      // Use different algorithms for each role to ensure variety
+      let selectionIndex: number;
+      
+      if (role === 'WK') {
+        // For WK, simple rotation since usually limited pool
+        selectionIndex = (teamIndex - 1) % variationPool.length;
+      } else if (role === 'BAT') {
+        // For batsmen, use preset-specific variation patterns
+        const presetMultiplier = this.getPresetMultiplier(config.preset);
+        selectionIndex = ((teamIndex - 1) * presetMultiplier + i * 2) % variationPool.length;
+      } else if (role === 'AR') {
+        // For all-rounders, weighted towards versatility
+        const versatilityOffset = config.versatilityFocus ? 1 : 0;
+        selectionIndex = ((teamIndex - 1) * 2 + i + versatilityOffset) % variationPool.length;
+      } else if (role === 'BWL') {
+        // For bowlers, consider bowling conditions
+        const conditionOffset = config.bowlingConditions ? 2 : 0;
+        selectionIndex = ((teamIndex - 1) * 3 + i + conditionOffset) % variationPool.length;
+      } else {
+        // Default variation
+        selectionIndex = ((teamIndex - 1) + i) % variationPool.length;
+      }
+      
+      // Ensure we don't select the same player twice
+      while (selections.some(p => p.id === variationPool[selectionIndex].id) && 
+             selections.length < variationPool.length) {
+        selectionIndex = (selectionIndex + 1) % variationPool.length;
+      }
+      
+      selections.push(variationPool[selectionIndex]);
+    }
+    
+    return selections;
+  }
+
+  private getPresetMultiplier(preset: string): number {
+    const multipliers: { [key: string]: number } = {
+      'team-a-bias': 2,
+      'team-b-bias': 3,
+      'high-differential': 4,
+      'balanced': 2,
+      'all-rounder-heavy': 3,
+      'top-order-stack': 4,
+      'bowling-special': 5,
+      'death-overs': 3
+    };
+    
+    return multipliers[preset] || 2;
   }
 
   private async generateSingleTeam(
@@ -645,44 +820,57 @@ export class AIService {
     const prefs = request.userPreferences!;
     const selectedPlayers: Player[] = [];
     
-    // Get player objects from names
-    const getPlayersFromNames = (names: string[]): Player[] => {
-      return names.map(name => 
-        recommendations.find(r => r.player.name === name)?.player
+    // Get player objects from selections object structure
+    const getPlayersFromSelections = (players: any[]): Player[] => {
+      return players.map(playerObj => 
+        recommendations.find(r => r.player.id === playerObj.id)?.player
       ).filter((p): p is Player => !!p);
     };
 
-    // 1. Core Players (75%+ teams) - Always include
-    const corePlayerObjs = getPlayersFromNames(prefs.corePlayers || []);
-    selectedPlayers.push(...corePlayerObjs);
+    // Extract selections from the user preferences
+    const selections = prefs.selections || { core: [], hedge: [], differential: [] };
+    const captainOrder = prefs.captainOrder || [];
+    
+    // 1. Core Players (always include most core players)
+    const corePlayerObjs = getPlayersFromSelections(selections.core);
+    const coreToInclude = Math.max(6, Math.min(corePlayerObjs.length, 9)); // Include 6-9 core players
+    
+    // Rotate which core players to include for team variation
+    for (let i = 0; i < coreToInclude; i++) {
+      const coreIndex = (teamIndex + i) % corePlayerObjs.length;
+      const corePlayer = corePlayerObjs[coreIndex];
+      if (corePlayer && !selectedPlayers.find(p => p.id === corePlayer.id)) {
+        selectedPlayers.push(corePlayer);
+      }
+    }
 
-    // 2. Hedge Players (~50% teams) - Include based on team index rotation
-    const hedgePlayerObjs = getPlayersFromNames(prefs.hedgePlayers || []);
-    const hedgePercentage = prefs.hedgePercentage || 50;
-    const includeHedge = (teamIndex * 100 / request.teamCount) < hedgePercentage;
+    // 2. Hedge Players (~50% teams with rotation)
+    const hedgePlayerObjs = getPlayersFromSelections(selections.hedge);
+    const hedgePercentage = 50;
+    const includeHedge = (teamIndex % 2 === 0); // Alternate teams get hedge players
     
     if (includeHedge && hedgePlayerObjs.length > 0) {
       // Rotate through hedge players for variation
       const hedgeCount = Math.min(
-        hedgePlayerObjs.length,
-        DREAM11_RULES.totalPlayers - selectedPlayers.length - 1 // leave room for differential
+        Math.ceil(hedgePlayerObjs.length / 2), // Include about half of hedge players
+        DREAM11_RULES.totalPlayers - selectedPlayers.length - 1 // leave room for others
       );
       for (let i = 0; i < hedgeCount; i++) {
         const hedgeIndex = (teamIndex + i) % hedgePlayerObjs.length;
         const hedgePlayer = hedgePlayerObjs[hedgeIndex];
-        if (!selectedPlayers.find(p => p.id === hedgePlayer.id)) {
+        if (hedgePlayer && !selectedPlayers.find(p => p.id === hedgePlayer.id)) {
           selectedPlayers.push(hedgePlayer);
         }
       }
     }
 
-    // 3. Differential Players (1-2 teams) - Very selective inclusion
-    const differentialPlayerObjs = getPlayersFromNames(prefs.differentialPlayers || []);
-    const isDifferentialTeam = teamIndex < 2; // Only first 1-2 teams get differentials
+    // 3. Differential Players (1-2 teams only)
+    const differentialPlayerObjs = getPlayersFromSelections(selections.differential);
+    const isDifferentialTeam = teamIndex < Math.min(2, differentialPlayerObjs.length);
     
     if (isDifferentialTeam && differentialPlayerObjs.length > 0) {
-      const diffPlayer = differentialPlayerObjs[teamIndex % differentialPlayerObjs.length];
-      if (!selectedPlayers.find(p => p.id === diffPlayer.id)) {
+      const diffPlayer = differentialPlayerObjs[teamIndex];
+      if (diffPlayer && !selectedPlayers.find(p => p.id === diffPlayer.id)) {
         selectedPlayers.push(diffPlayer);
       }
     }
@@ -700,9 +888,39 @@ export class AIService {
       teamCounts[team] = (teamCounts[team] || 0) + 1;
     });
 
-    // Fill remaining slots with valid players
-    for (let i = 0; i < remainingSlots && availableRecs.length > 0; i++) {
-      const rec = availableRecs[i];
+    // Fill remaining slots with valid players ensuring role balance
+    const roleBalance = this.calculateRoleBalance(selectedPlayers);
+    const validCompositions = Dream11TeamValidator.generateValidTeamCompositions();
+    const targetComposition = validCompositions[0]; // Use standard composition
+    
+    // Prioritize filling roles that are short
+    const roleShortfall = {
+      BAT: Math.max(0, (targetComposition.BAT || 3) - roleBalance.batsmen),
+      BWL: Math.max(0, (targetComposition.BWL || 3) - roleBalance.bowlers),
+      AR: Math.max(0, (targetComposition.AR || 2) - roleBalance.allRounders),
+      WK: Math.max(0, (targetComposition.WK || 1) - roleBalance.wicketKeepers)
+    };
+
+    // Sort available players by role priority and quality
+    const sortedRecs = availableRecs.sort((a, b) => {
+      const aRole = a.player.player_role || 'BAT';
+      const bRole = b.player.player_role || 'BAT';
+      const aShortfall = roleShortfall[aRole as keyof typeof roleShortfall] || 0;
+      const bShortfall = roleShortfall[bRole as keyof typeof roleShortfall] || 0;
+      
+      // Prioritize roles we need more of
+      if (aShortfall !== bShortfall) return bShortfall - aShortfall;
+      
+      // Then by player quality (points and selection percentage)
+      const aScore = (a.player.points || 0) + (a.player.selection_percentage || 0);
+      const bScore = (b.player.points || 0) + (b.player.selection_percentage || 0);
+      return bScore - aScore;
+    });
+
+    // Fill remaining slots
+    for (const rec of sortedRecs) {
+      if (selectedPlayers.length >= DREAM11_RULES.totalPlayers) break;
+      
       const player = rec.player;
       const playerCredits = player.credits || 8;
       const playerTeam = player.team_name || 'Unknown';
@@ -728,42 +946,46 @@ export class AIService {
       }
     }
 
+    // Trim to exactly 11 players
+    const finalTeam = selectedPlayers.slice(0, DREAM11_RULES.totalPlayers);
+
     // Validate team composition
-    const validation = Dream11TeamValidator.validateTeamComposition(selectedPlayers);
+    const validation = Dream11TeamValidator.validateTeamComposition(finalTeam);
     if (!validation.isValid) {
       console.warn('Core-hedge team validation failed, using fallback');
       return this.generateFallbackTeam(recommendations, request, teamIndex);
     }
 
-    // Select captain and vice-captain using combos
-    const { captain, viceCaptain } = this.forceVariedCaptainSelection(selectedPlayers, recommendations, request, teamIndex);
+    // Select captain and vice-captain using captain order from frontend
+    const { captain, viceCaptain } = this.selectCaptainFromOrder(finalTeam, captainOrder, teamIndex);
 
     // Calculate team insights
-    const coreCount = selectedPlayers.filter(p => 
+    const coreCount = finalTeam.filter(p => 
       corePlayerObjs.some(core => core.id === p.id)
     ).length;
-    const hedgeCount = selectedPlayers.filter(p => 
+    const hedgeCount = finalTeam.filter(p => 
       hedgePlayerObjs.some(hedge => hedge.id === p.id)
     ).length;
-    const diffCount = selectedPlayers.filter(p => 
+    const diffCount = finalTeam.filter(p => 
       differentialPlayerObjs.some(diff => diff.id === p.id)
     ).length;
 
     const insights = [
       `Core-hedge strategy: ${coreCount} core, ${hedgeCount} hedge, ${diffCount} differential players`,
       `Team ${teamIndex + 1}: ${includeHedge ? 'Includes hedge picks' : 'Core-focused team'}`,
-      `${isDifferentialTeam ? 'Differential team with unique picks' : 'Standard core-hedge balance'}`
+      `${isDifferentialTeam ? 'Differential team with unique picks' : 'Standard core-hedge balance'}`,
+      `Captain: ${captain.name}, Vice-Captain: ${viceCaptain.name}`
     ];
 
     return {
-      players: selectedPlayers.slice(0, DREAM11_RULES.totalPlayers),
+      players: finalTeam,
       captain,
       viceCaptain,
-      totalCredits: selectedPlayers.reduce((sum, p) => sum + (p.credits || 8), 0),
-      roleBalance: this.calculateRoleBalance(selectedPlayers),
-      riskScore: this.calculateRiskScore(selectedPlayers, request),
-      expectedPoints: this.calculateExpectedPoints(selectedPlayers, captain, viceCaptain),
-      confidence: this.calculateTeamConfidence(selectedPlayers, recommendations),
+      totalCredits: finalTeam.reduce((sum, p) => sum + (p.credits || 8), 0),
+      roleBalance: this.calculateRoleBalance(finalTeam),
+      riskScore: this.calculateRiskScore(finalTeam, request),
+      expectedPoints: this.calculateExpectedPoints(finalTeam, captain, viceCaptain),
+      confidence: this.calculateTeamConfidence(finalTeam, recommendations),
       insights,
       reasoning: `Core-hedge team ${teamIndex + 1} with ${coreCount}/${hedgeCount}/${diffCount} core/hedge/diff split`
     };
@@ -1117,8 +1339,124 @@ export class AIService {
 
   // Stub methods for missing functionality
   private generateSameXITeams(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
-    // TODO: Implement same-xi strategy
-    return Promise.resolve([]);
+    try {
+      console.log('🎯 Strategy 2: Generating Same XI teams with different captains');
+      
+      const { players, combos } = request.userPreferences!;
+      const teamCount = request.teamCount;
+      
+      if (!players || !Array.isArray(players) || players.length !== 11) {
+        console.error('❌ Strategy 2: Invalid player selection - need exactly 11 players');
+        return Promise.resolve([]);
+      }
+
+      if (!combos || !Array.isArray(combos) || combos.length === 0) {
+        console.error('❌ Strategy 2: No captain/vice-captain combinations provided');
+        return Promise.resolve([]);
+      }
+
+      // Validate combinations total to 100%
+      const totalPercentage = combos.reduce((sum: number, combo: any) => sum + (combo.percentage || 0), 0);
+      if (totalPercentage !== 100) {
+        console.error(`❌ Strategy 2: Invalid percentage distribution. Total: ${totalPercentage}%, Expected: 100%`);
+        return Promise.resolve([]);
+      }
+
+      const teams: AITeamAnalysis[] = [];
+      let teamIndex = 0;
+
+      // Generate teams based on percentage distribution
+      for (const combo of combos) {
+        const teamsForThisCombo = Math.round((combo.percentage / 100) * teamCount);
+        
+        for (let i = 0; i < teamsForThisCombo && teamIndex < teamCount; i++) {
+          const team = this.createSameXITeam(
+            players,
+            combo.captain,
+            combo.viceCaptain,
+            teamIndex + 1,
+            combo.percentage
+          );
+          teams.push(team);
+          teamIndex++;
+        }
+      }
+
+      // Fill remaining teams if percentage rounding left some unfilled
+      while (teams.length < teamCount) {
+        const combo = combos[teams.length % combos.length];
+        const team = this.createSameXITeam(
+          players,
+          combo.captain,
+          combo.viceCaptain,
+          teams.length + 1,
+          combo.percentage
+        );
+        teams.push(team);
+      }
+
+      console.log(`✅ Strategy 2: Generated ${teams.length} teams with same XI, different captains`);
+      return Promise.resolve(teams);
+    } catch (error) {
+      console.error('❌ Strategy 2 error:', error);
+      return Promise.resolve([]);
+    }
+  }
+
+  private createSameXITeam(
+    players: any[],
+    captainName: string,
+    viceCaptainName: string,
+    teamNumber: number,
+    percentage: number
+  ): AITeamAnalysis {
+    // Find captain and vice-captain from players
+    const captain = players.find(p => p.name === captainName) || players[0];
+    const viceCaptain = players.find(p => p.name === viceCaptainName) || players[1];
+
+    // Calculate total credits
+    const totalCredits = players.reduce((sum, p) => sum + (p.credits || 8), 0);
+
+    // Estimate team points
+    const expectedPoints = players.reduce((sum, p) => sum + (p.points || 0), 0);
+
+    // Calculate role balance
+    const roleBalance = this.calculateRoleBalanceForSameXI(players);
+
+    return {
+      players: players,
+      captain: captain,
+      viceCaptain: viceCaptain,
+      totalCredits: totalCredits,
+      expectedPoints: expectedPoints,
+      confidence: 85, // High confidence since user manually selected the XI
+      riskScore: 30, // Lower risk since same XI across all teams
+      reasoning: `Same XI Team ${teamNumber} with ${captainName} (C) and ${viceCaptainName} (VC) - ${percentage}% distribution`,
+      roleBalance: roleBalance
+    };
+  }
+
+  private calculateRoleBalanceForSameXI(players: any[]): { batsmen: number; bowlers: number; allRounders: number; wicketKeepers: number } {
+    const roles = { batsmen: 0, bowlers: 0, allRounders: 0, wicketKeepers: 0 };
+    
+    players.forEach(player => {
+      switch (player.player_role) {
+        case 'BAT':
+          roles.batsmen++;
+          break;
+        case 'BWL':
+          roles.bowlers++;
+          break;
+        case 'AR':
+          roles.allRounders++;
+          break;
+        case 'WK':
+          roles.wicketKeepers++;
+          break;
+      }
+    });
+    
+    return roles;
   }
 
   private async generatePresetScenarioTeams(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
@@ -1255,104 +1593,955 @@ export class AIService {
     request: TeamGenerationRequest,
     teamIndex: number
   ): Promise<AITeamAnalysis> {
-    const selectedPlayers: Player[] = [];
+    console.log(`🎯 Building role-split team ${teamIndex + 1} with preset: ${config.preset || 'default'} (targeting 25%+ variation)`);
     
-    // Group players by their primary role
+    // Apply preset-specific configurations
+    const enhancedConfig = this.applyPresetConfiguration(config, match, teamIndex);
+    
+    // Enhanced player analysis with AI scoring including preset logic
+    const enhancedPlayers = await this.analyzePlayersForRoleSplit(players, match, enhancedConfig, teamIndex);
+    
+    // Group players by their role with enhanced scoring
     const playersByRole = {
-      WK: players.filter(p => p.player_role === 'WK'),
-      BAT: players.filter(p => p.player_role === 'BAT'),
-      AR: players.filter(p => p.player_role === 'AR'),
-      BWL: players.filter(p => p.player_role === 'BWL')
+      WK: enhancedPlayers.filter(p => p.player_role === 'WK'),
+      BAT: enhancedPlayers.filter(p => p.player_role === 'BAT'),
+      AR: enhancedPlayers.filter(p => p.player_role === 'AR'),
+      BWL: enhancedPlayers.filter(p => p.player_role === 'BWL')
     };
 
-    // Step 1: Select exact number of wicket keepers
-    const selectedWK = this.selectRoleSplitPlayers(playersByRole.WK, config.wicketKeepers, teamIndex, config.prioritizeForm);
-    selectedPlayers.push(...selectedWK);
+    console.log(`📊 Enhanced analysis for preset "${enhancedConfig.preset}": WK(${playersByRole.WK.length}), BAT(${playersByRole.BAT.length}), AR(${playersByRole.AR.length}), BWL(${playersByRole.BWL.length})`);
 
-    // Step 2: Select exact number of all-rounders
-    const selectedAR = this.selectRoleSplitPlayers(playersByRole.AR, config.allRounders, teamIndex, config.prioritizeForm);
-    selectedPlayers.push(...selectedAR);
-
-    // Step 3: Select bowlers based on bowling type preferences
-    const allBowlers = playersByRole.BWL.filter(p => !selectedPlayers.some(sp => sp.id === p.id));
-    
-    // Categorize bowlers by bowling style
-    const spinners = allBowlers.filter(p => 
-      p.bowling_style?.toLowerCase().includes('spin') || 
-      p.bowling_style?.toLowerCase().includes('orthodox') ||
-      p.bowling_style?.toLowerCase().includes('leg')
-    );
-    const pacers = allBowlers.filter(p => 
-      !p.bowling_style?.toLowerCase().includes('spin') && 
-      !p.bowling_style?.toLowerCase().includes('orthodox') &&
-      !p.bowling_style?.toLowerCase().includes('leg')
+    // NEW: Core + Variation Selection Strategy
+    const selectedPlayers = this.selectCorePlayersWithVariation(
+      playersByRole,
+      enhancedConfig,
+      teamIndex,
+      match
     );
 
-    // Select specified number of spinners and pacers
-    const selectedSpinners = this.selectRoleSplitPlayers(spinners, config.spinners, teamIndex, config.prioritizeForm);
-    const selectedPacers = this.selectRoleSplitPlayers(pacers, config.pacers, teamIndex, config.prioritizeForm);
-    selectedPlayers.push(...selectedSpinners, ...selectedPacers);
-
-    // Step 4: Select batsmen based on batting order preferences
-    const remainingBatsmen = playersByRole.BAT.filter(p => !selectedPlayers.some(sp => sp.id === p.id));
-    
-    // Categorize batsmen by batting order (using points as proxy for batting position)
-    const sortedBatsmen = remainingBatsmen.sort((a, b) => (b.points || 0) - (a.points || 0));
-    const topOrderBatsmen = sortedBatsmen.slice(0, Math.ceil(sortedBatsmen.length * 0.4));
-    const middleOrderBatsmen = sortedBatsmen.slice(Math.ceil(sortedBatsmen.length * 0.4), Math.ceil(sortedBatsmen.length * 0.8));
-    const lowerOrderBatsmen = sortedBatsmen.slice(Math.ceil(sortedBatsmen.length * 0.8));
-
-    // Select specified number of batsmen from each order
-    const selectedTopOrder = this.selectRoleSplitPlayers(topOrderBatsmen, config.topOrderBatsmen, teamIndex, config.prioritizeForm);
-    const selectedMiddleOrder = this.selectRoleSplitPlayers(middleOrderBatsmen, config.middleOrderBatsmen, teamIndex, config.prioritizeForm);
-    const selectedLowerOrder = this.selectRoleSplitPlayers(lowerOrderBatsmen, config.lowerOrderBatsmen, teamIndex, config.prioritizeForm);
-    
-    selectedPlayers.push(...selectedTopOrder, ...selectedMiddleOrder, ...selectedLowerOrder);
-
-    // Step 5: Fill any remaining slots with best available players (fallback)
-    while (selectedPlayers.length < 11) {
-      const remainingPlayers = players.filter(p => 
-        !selectedPlayers.some(sp => sp.id === p.id)
-      ).sort((a, b) => (b.points || 0) - (a.points || 0));
-      
-      if (remainingPlayers.length > 0) {
-        const playerIndex = (teamIndex + selectedPlayers.length) % Math.min(remainingPlayers.length, 5);
-        selectedPlayers.push(remainingPlayers[playerIndex]);
-      } else {
-        break;
-      }
+    // Fill remaining slots with strategic picks based on preset
+    const remainingSlots = 11 - selectedPlayers.length;
+    if (remainingSlots > 0) {
+      const strategicFillers = this.selectStrategicFillers(
+        enhancedPlayers.filter(p => !selectedPlayers.some(sp => sp.id === p.id)),
+        remainingSlots,
+        teamIndex,
+        config,
+        match
+      );
+      selectedPlayers.push(...strategicFillers);
     }
 
     // Ensure exactly 11 players
     const finalPlayers = selectedPlayers.slice(0, 11);
 
-    // Select captain and vice-captain
-    const { captain, viceCaptain } = this.selectRoleSplitCaptains(finalPlayers, teamIndex);
+    // Validate Dream11 rules
+    const validation = Dream11TeamValidator.validateTeamComposition(finalPlayers);
+    if (!validation.isValid) {
+      console.warn(`⚠️ Team ${teamIndex + 1} validation failed, applying fixes`);
+      return this.fixAndReturnRoleSplitTeam(enhancedPlayers, config, match, request, teamIndex);
+    }
 
-    // Calculate team statistics
-    const totalCredits = finalPlayers.reduce((sum, p) => sum + (p.credits || 8), 0);
-    const roleBalance = this.calculateRoleBalance(finalPlayers);
-    const riskScore = this.calculateRoleSplitRiskScore(config, finalPlayers);
-    const expectedPoints = this.calculateExpectedPoints(finalPlayers, captain, viceCaptain);
+    // Intelligent Captain and Vice-Captain selection
+    const { captain, viceCaptain } = this.selectIntelligentCaptains(finalPlayers, teamIndex, match, config);
+
+    // Calculate enhanced team statistics
+    const teamStats = this.calculateEnhancedTeamStats(finalPlayers, captain, viceCaptain, match, config);
+
+    // Generate strategy descriptions for reasoning
+    const battingStrategy = this.determineBattingStrategy(match, config, teamIndex);
+    const bowlingStrategy = this.determineBowlingStrategy(match, config, teamIndex);
 
     return {
       players: finalPlayers,
       captain,
       viceCaptain,
-      totalCredits,
-      roleBalance,
-      riskScore,
-      expectedPoints,
-      confidence: 85,
-      reasoning: `Role-split team ${teamIndex + 1} with ${config.topOrderBatsmen} top-order, ${config.middleOrderBatsmen} middle-order batsmen, ${config.spinners} spinners, ${config.pacers} pacers`,
-      insights: [
-        `Batting Order: ${config.topOrderBatsmen} top + ${config.middleOrderBatsmen} middle + ${config.lowerOrderBatsmen} lower`,
-        `Bowling Split: ${config.spinners} spinners + ${config.pacers} pacers`,
-        `Role Balance: ${config.allRounders} AR + ${config.wicketKeepers} WK`,
-        `Diversity Level: ${config.diversityLevel}`,
-        `Form Priority: ${config.prioritizeForm ? 'Yes' : 'No'}`
-      ]
+      totalCredits: teamStats.totalCredits,
+      roleBalance: teamStats.roleBalance,
+      riskScore: teamStats.riskScore,
+      expectedPoints: teamStats.expectedPoints,
+      confidence: teamStats.confidence,
+      reasoning: this.generateRoleSplitReasoning(config, teamIndex, battingStrategy, bowlingStrategy),
+      insights: this.generateRoleSplitInsights(finalPlayers, config, teamIndex, match)
     };
+  }
+
+  private async analyzePlayersForRoleSplit(
+    players: Player[], 
+    match: Match, 
+    config: any, 
+    teamIndex: number
+  ): Promise<(Player & { aiScore: number; matchScore: number; formScore: number; presetScore: number })[]> {
+    const enhancedPlayers = players.map(player => {
+      // Base scoring
+      const baseScore = (player.points || 0) * 0.4 + (player.selection_percentage || 0) * 0.1;
+      
+      // Form analysis (last 5 matches performance indicator)
+      const formScore = this.calculateFormScore(player, config.prioritizeForm);
+      
+      // Match-specific scoring based on conditions
+      const matchScore = this.calculateMatchSpecificScore(player, match, config);
+      
+      // Role-specific bonus
+      const roleBonus = this.calculateRoleBonus(player, config, teamIndex);
+      
+      // NEW: Preset-specific scoring for advanced strategies
+      const presetScore = this.calculatePresetSpecificScore(player, config, match, teamIndex);
+      
+      // Combine all factors with intelligent weighting
+      const aiScore = (baseScore * 0.25) + (formScore * 0.25) + (matchScore * 0.2) + (roleBonus * 0.15) + (presetScore * 0.15);
+      
+      return {
+        ...player,
+        aiScore,
+        matchScore,
+        formScore,
+        presetScore
+      };
+    });
+
+    // Sort by AI score for intelligent selection
+    return enhancedPlayers.sort((a, b) => b.aiScore - a.aiScore);
+  }
+
+  private calculatePresetSpecificScore(player: Player, config: any, match: Match, teamIndex: number): number {
+    let score = 50; // Base preset score
+    
+    // Team A High Total, Team B Collapse strategy
+    if (config.teamBias === 'teamA') {
+      const teamNames = match.team_name?.split(' vs ') || [];
+      if (teamNames.length >= 2) {
+        if (player.team_name === teamNames[0] && player.player_role === 'BAT') {
+          score += 25; // Heavy bonus for Team A batsmen
+        }
+        if (player.team_name === teamNames[1] && player.player_role === 'BWL') {
+          score += 20; // Bonus for Team B bowlers
+        }
+      }
+    }
+    
+    // Team B High Total, Team A Collapse strategy
+    if (config.teamBias === 'teamB') {
+      const teamNames = match.team_name?.split(' vs ') || [];
+      if (teamNames.length >= 2) {
+        if (player.team_name === teamNames[1] && player.player_role === 'BAT') {
+          score += 25; // Heavy bonus for Team B batsmen
+        }
+        if (player.team_name === teamNames[0] && player.player_role === 'BWL') {
+          score += 20; // Bonus for Team A bowlers
+        }
+      }
+    }
+    
+    // High Differentials Strategy
+    if (config.differentialFocus) {
+      const ownership = player.selection_percentage || 50;
+      if (ownership < (config.ownershipThreshold || 20)) {
+        score += 30; // High bonus for low-ownership players
+      } else if (ownership > 60) {
+        score -= 15; // Penalty for high-ownership players
+      }
+    }
+    
+    // All-Rounder Heavy strategy
+    if (config.versatilityFocus && player.player_role === 'AR') {
+      score += 25; // All-rounders get major bonus
+    }
+    
+    // Top Order Batting Stack
+    if (config.powerplayFocus && player.player_role === 'BAT') {
+      // Assume higher points = better batting position
+      const battingPosition = this.estimateBattingPosition(player);
+      if (battingPosition <= 3) {
+        score += 20; // Top-order batsmen bonus
+      }
+    }
+    
+    // Bowling Pitch Special
+    if (config.bowlingConditions && player.player_role === 'BWL') {
+      score += 20; // Bowlers get bonus
+      const pitchCondition = match.pitch_condition?.toLowerCase() || '';
+      if (pitchCondition.includes('bowl') || pitchCondition.includes('seam') || pitchCondition.includes('spin')) {
+        score += 15; // Extra bonus for bowling-friendly conditions
+      }
+    }
+    
+    // Death Overs Specialists
+    if (config.deathOversFocus) {
+      if (player.player_role === 'BAT') {
+        // Finishers - typically middle/lower order batsmen with high strike rates
+        const battingPosition = this.estimateBattingPosition(player);
+        if (battingPosition >= 4 && (player.points || 0) > 60) {
+          score += 18; // Finisher bonus
+        }
+      }
+      if (player.player_role === 'BWL') {
+        // Death bowlers - typically pacers with good economy
+        if (!player.bowling_style?.toLowerCase().includes('spin')) {
+          score += 15; // Pacer death bowler bonus
+        }
+      }
+    }
+    
+    // Balanced strategy
+    if (config.balanced) {
+      // No extreme bonuses, slight preference for consistent performers
+      if ((player.selection_percentage || 0) > 30 && (player.selection_percentage || 0) < 70) {
+        score += 10; // Moderate ownership bonus
+      }
+    }
+    
+    return Math.max(0, Math.min(100, score));
+  }
+
+  private estimateBattingPosition(player: Player): number {
+    // Estimate batting position based on role and performance
+    if (player.player_role === 'WK') return 1; // Often openers or top order
+    if (player.player_role === 'BAT') {
+      // Higher points typically indicate higher batting order
+      const points = player.points || 0;
+      if (points > 80) return 1; // Likely opener
+      if (points > 60) return 2; // Likely #3
+      if (points > 40) return 4; // Middle order
+      return 6; // Lower middle order
+    }
+    if (player.player_role === 'AR') return 5; // Typically middle order
+    return 8; // Bowlers typically bat lower
+  }
+
+  private calculateFormScore(player: Player, prioritizeForm: boolean): number {
+    if (!prioritizeForm) return (player.points || 0) * 0.5;
+    
+    let formScore = 50; // Base score
+    
+    // Use advanced database stats if available
+    if ((player as any).recent_form_rating !== undefined) {
+      formScore = Math.max(0, Math.min(100, (player as any).recent_form_rating * 100));
+    } else {
+      // Fallback to points-based calculation
+      formScore = Math.min(100, (player.points || 0) / 2);
+    }
+    
+    // Bonus for consistency
+    if ((player as any).consistency_score !== undefined) {
+      formScore += ((player as any).consistency_score * 15); // Up to 15 points for consistency
+    }
+    
+    // Bonus for versatility in all-rounder heavy strategies
+    if ((player as any).versatility_score !== undefined && player.player_role === 'AR') {
+      formScore += ((player as any).versatility_score * 10); // Up to 10 points for versatility
+    }
+    
+    return Math.max(0, Math.min(100, formScore));
+  }
+
+  private calculateMatchSpecificScore(player: Player, match: Match, config: any): number {
+    let score = 50; // Base score
+    
+    // Use database venue performance if available
+    if ((player as any).venue_performance !== undefined) {
+      score += ((player as any).venue_performance * 25); // Up to 25 points for venue performance
+    }
+    
+    // Use database pitch suitability if available
+    if ((player as any).pitch_suitability !== undefined) {
+      score += ((player as any).pitch_suitability * 20); // Up to 20 points for pitch suitability
+    }
+    
+    // Use database weather adaptability if available
+    if ((player as any).weather_adaptability !== undefined) {
+      score += ((player as any).weather_adaptability * 15); // Up to 15 points for weather adaptability
+    }
+    
+    // Fallback to manual pitch condition adjustments if database stats not available
+    if ((player as any).venue_performance === undefined && (player as any).pitch_suitability === undefined) {
+      const pitchCondition = match.pitch_condition?.toLowerCase() || '';
+      
+      if (pitchCondition.includes('spin') && player.bowling_style?.toLowerCase().includes('spin')) {
+        score += 20; // Spinners get bonus on spin-friendly pitches
+      }
+      
+      if (pitchCondition.includes('pace') && !player.bowling_style?.toLowerCase().includes('spin')) {
+        score += 20; // Pacers get bonus on pace-friendly pitches
+      }
+      
+      if (pitchCondition.includes('bat') && ['BAT', 'WK'].includes(player.player_role)) {
+        score += 15; // Batsmen get bonus on batting-friendly pitches
+      }
+      
+      if (pitchCondition.includes('bowl') && ['BWL', 'AR'].includes(player.player_role)) {
+        score += 15; // Bowlers get bonus on bowling-friendly pitches
+      }
+    }
+    
+    // Weather condition adjustments (if database stats not available)
+    if ((player as any).weather_adaptability === undefined) {
+      const weatherCondition = match.weather_condition?.toLowerCase() || '';
+      
+      if (weatherCondition.includes('cloudy') && player.player_role === 'BWL') {
+        score += 10; // Bowlers benefit from cloudy conditions
+      }
+      
+      if (weatherCondition.includes('sunny') && ['BAT', 'WK'].includes(player.player_role)) {
+        score += 5; // Batsmen slightly benefit from clear conditions
+      }
+    }
+    
+    return Math.max(0, Math.min(100, score));
+  }
+
+  private calculateRoleBonus(player: Player, config: any, teamIndex: number): number {
+    let bonus = 0;
+    
+    // Configuration-specific bonuses
+    if (player.player_role === 'AR' && config.allRounders >= 2) {
+      bonus += 10; // All-rounder heavy team bonus
+    }
+    
+    if (player.player_role === 'BWL') {
+      if (config.spinners > config.pacers && player.bowling_style?.toLowerCase().includes('spin')) {
+        bonus += 15; // Spinner-heavy configuration
+      } else if (config.pacers > config.spinners && !player.bowling_style?.toLowerCase().includes('spin')) {
+        bonus += 15; // Pacer-heavy configuration
+      }
+    }
+    
+    // Team index variation for diversity
+    const variationBonus = (teamIndex % 3) * 5; // Adds 0, 5, or 10 bonus
+    bonus += variationBonus;
+    
+    return bonus;
+  }
+
+  private selectIntelligentRolePlayers(
+    rolePlayers: (Player & { aiScore: number; matchScore: number; formScore: number; presetScore?: number })[],
+    count: number,
+    teamIndex: number,
+    role: string,
+    config: any,
+    match: Match
+  ): Player[] {
+    if (count === 0 || rolePlayers.length === 0) return [];
+
+    // Create intelligent selection with FORCED diversity for preset strategies
+    const selectionPool = Math.min(rolePlayers.length, Math.max(count * 5, 15)); // Larger pool for more diversity
+    const selectedPlayers: Player[] = [];
+    const usedIndices = new Set<number>();
+
+    for (let i = 0; i < count && i < rolePlayers.length; i++) {
+      // ENHANCED diversity algorithm for preset-based strategies
+      let baseIndex: number;
+      
+      if (config.preset && teamIndex > 0) {
+        // For preset strategies, use a more aggressive variation algorithm
+        const presetVariation = this.getPresetVariationOffset(config.preset, teamIndex, i);
+        const roleVariation = role === 'WK' ? 0 : Math.floor(teamIndex / 2); // Less variation for WK
+        const combinedVariation = presetVariation + roleVariation;
+        
+        baseIndex = (i + combinedVariation) % selectionPool;
+      } else {
+        // Standard variation for non-preset strategies
+        baseIndex = Math.floor((teamIndex + i) * 1.7) % selectionPool;
+      }
+      
+      // Add randomness based on team index to ensure variation
+      const variationOffset = config.enforceVariation !== false ? 
+        (teamIndex * 3 + i * 2) % Math.min(5, selectionPool) : 0;
+      let index = (baseIndex + variationOffset) % selectionPool;
+      
+      // Ensure we don't pick the same player twice with enhanced fallback
+      let attempts = 0;
+      while (usedIndices.has(index) && attempts < selectionPool) {
+        index = (index + teamIndex + attempts + 1) % selectionPool;
+        attempts++;
+      }
+      
+      if (index < rolePlayers.length && !usedIndices.has(index)) {
+        selectedPlayers.push(rolePlayers[index]);
+        usedIndices.add(index);
+      } else if (selectedPlayers.length < count) {
+        // Fallback: find any unused player for this role
+        for (let fallbackIndex = 0; fallbackIndex < rolePlayers.length; fallbackIndex++) {
+          if (!usedIndices.has(fallbackIndex)) {
+            selectedPlayers.push(rolePlayers[fallbackIndex]);
+            usedIndices.add(fallbackIndex);
+            break;
+          }
+        }
+      }
+    }
+
+    console.log(`🎯 Selected ${selectedPlayers.length} ${role} players for team ${teamIndex + 1} (preset: ${config.preset || 'none'})`);
+    return selectedPlayers;
+  }
+
+  private getPresetVariationOffset(preset: string, teamIndex: number, playerIndex: number): number {
+    // Different variation patterns for each preset to ensure unique team compositions
+    const presetMultipliers: { [key: string]: number } = {
+      'team-a-high-total-team-b-collapse': 3,
+      'team-b-high-total-team-a-collapse': 4,
+      'high-differentials-strategy': 5,
+      'balanced-roles': 2,
+      'all-rounder-heavy-lineup': 6,
+      'top-order-batting-stack': 7,
+      'bowling-pitch-special': 8,
+      'death-overs-specialists': 9
+    };
+    
+    const multiplier = presetMultipliers[preset] || 3;
+    return (teamIndex * multiplier + playerIndex * 2) % 10;
+  }
+
+  private determineBowlingStrategy(match: Match, config: any, teamIndex: number): string {
+    const pitchCondition = match.pitch_condition?.toLowerCase() || '';
+    const weatherCondition = match.weather_condition?.toLowerCase() || '';
+    
+    // AI-driven bowling strategy determination
+    if (pitchCondition.includes('spin') || pitchCondition.includes('turn')) {
+      return teamIndex % 2 === 0 ? 'spin-heavy' : 'balanced-spin';
+    }
+    
+    if (pitchCondition.includes('pace') || pitchCondition.includes('bouncy')) {
+      return teamIndex % 2 === 0 ? 'pace-heavy' : 'balanced-pace';
+    }
+    
+    if (weatherCondition.includes('cloud') || weatherCondition.includes('overcast')) {
+      return 'swing-focused';
+    }
+    
+    // Default strategies with rotation
+    const strategies = ['balanced', 'pace-heavy', 'spin-heavy', 'swing-focused'];
+    return strategies[teamIndex % strategies.length];
+  }
+
+  private selectStrategicBowlers(
+    bowlers: (Player & { aiScore: number; matchScore: number; formScore: number })[],
+    config: any,
+    teamIndex: number,
+    bowlingStrategy: string,
+    match: Match
+  ): Player[] {
+    const selectedBowlers: Player[] = [];
+    
+    // Categorize bowlers with enhanced analysis
+    const spinners = bowlers.filter(p => 
+      p.bowling_style?.toLowerCase().includes('spin') || 
+      p.bowling_style?.toLowerCase().includes('orthodox') ||
+      p.bowling_style?.toLowerCase().includes('leg')
+    );
+    
+    const pacers = bowlers.filter(p => 
+      !p.bowling_style?.toLowerCase().includes('spin') && 
+      !p.bowling_style?.toLowerCase().includes('orthodox') &&
+      !p.bowling_style?.toLowerCase().includes('leg')
+    );
+
+    // Apply bowling strategy intelligence
+    let spinnerCount = config.spinners;
+    let pacerCount = config.pacers;
+    
+    if (bowlingStrategy === 'spin-heavy') {
+      spinnerCount = Math.min(spinners.length, config.spinners + 1);
+      pacerCount = Math.max(0, config.pacers - 1);
+    } else if (bowlingStrategy === 'pace-heavy') {
+      pacerCount = Math.min(pacers.length, config.pacers + 1);
+      spinnerCount = Math.max(0, config.spinners - 1);
+    }
+
+    // Select spinners with intelligence
+    const selectedSpinners = this.selectIntelligentRolePlayers(
+      spinners, spinnerCount, teamIndex, 'SPIN', config, match
+    );
+    selectedBowlers.push(...selectedSpinners);
+
+    // Select pacers with intelligence
+    const selectedPacers = this.selectIntelligentRolePlayers(
+      pacers, pacerCount, teamIndex, 'PACE', config, match
+    );
+    selectedBowlers.push(...selectedPacers);
+
+    console.log(`🎳 Selected ${selectedBowlers.length} bowlers with ${bowlingStrategy} strategy`);
+    return selectedBowlers;
+  }
+
+  private determineBattingStrategy(match: Match, config: any, teamIndex: number): string {
+    const pitchCondition = match.pitch_condition?.toLowerCase() || '';
+    
+    // AI-driven batting strategy determination
+    if (pitchCondition.includes('bat') || pitchCondition.includes('flat')) {
+      return teamIndex % 2 === 0 ? 'aggressive-top' : 'balanced-batting';
+    }
+    
+    if (pitchCondition.includes('bowler') || pitchCondition.includes('difficult')) {
+      return 'conservative-batting';
+    }
+    
+    // Rotate batting strategies for diversity
+    const strategies = ['aggressive-top', 'balanced-batting', 'middle-order-focus', 'conservative-batting'];
+    return strategies[teamIndex % strategies.length];
+  }
+
+  private selectStrategicBatsmen(
+    batsmen: (Player & { aiScore: number; matchScore: number; formScore: number })[],
+    config: any,
+    teamIndex: number,
+    battingStrategy: string,
+    match: Match
+  ): Player[] {
+    const selectedBatsmen: Player[] = [];
+    
+    // Categorize batsmen by batting order with AI analysis
+    const sortedBatsmen = batsmen.sort((a, b) => b.aiScore - a.aiScore);
+    
+    // Dynamic batting order categorization based on strategy
+    let topOrderCount = config.topOrderBatsmen;
+    let middleOrderCount = config.middleOrderBatsmen; 
+    let lowerOrderCount = config.lowerOrderBatsmen;
+    
+    if (battingStrategy === 'aggressive-top') {
+      topOrderCount = Math.min(batsmen.length, config.topOrderBatsmen + 1);
+      middleOrderCount = Math.max(0, config.middleOrderBatsmen - 1);
+    } else if (battingStrategy === 'middle-order-focus') {
+      middleOrderCount = Math.min(batsmen.length, config.middleOrderBatsmen + 1);
+      topOrderCount = Math.max(0, config.topOrderBatsmen - 1);
+    }
+
+    // Intelligent batting order selection
+    const topOrderPool = sortedBatsmen.slice(0, Math.ceil(sortedBatsmen.length * 0.4));
+    const middleOrderPool = sortedBatsmen.slice(
+      Math.ceil(sortedBatsmen.length * 0.3), 
+      Math.ceil(sortedBatsmen.length * 0.8)
+    );
+    const lowerOrderPool = sortedBatsmen.slice(Math.ceil(sortedBatsmen.length * 0.7));
+
+    // Select with intelligent variation
+    const selectedTopOrder = this.selectIntelligentRolePlayers(
+      topOrderPool, topOrderCount, teamIndex, 'TOP_BAT', config, match
+    );
+    selectedBatsmen.push(...selectedTopOrder);
+
+    const selectedMiddleOrder = this.selectIntelligentRolePlayers(
+      middleOrderPool, middleOrderCount, teamIndex, 'MID_BAT', config, match
+    );
+    selectedBatsmen.push(...selectedMiddleOrder);
+
+    const selectedLowerOrder = this.selectIntelligentRolePlayers(
+      lowerOrderPool, lowerOrderCount, teamIndex, 'LOW_BAT', config, match
+    );
+    selectedBatsmen.push(...selectedLowerOrder);
+
+    console.log(`🏏 Selected ${selectedBatsmen.length} batsmen with ${battingStrategy} strategy`);
+    return selectedBatsmen;
+  }
+
+  private selectStrategicFillers(
+    availablePlayers: (Player & { aiScore: number; matchScore: number; formScore: number })[],
+    slotsNeeded: number,
+    teamIndex: number,
+    config: any,
+    match: Match
+  ): Player[] {
+    if (slotsNeeded <= 0 || availablePlayers.length === 0) return [];
+
+    // Sort by AI score and select with variation
+    const sortedPlayers = availablePlayers.sort((a, b) => b.aiScore - a.aiScore);
+    const selectedFillers: Player[] = [];
+    
+    for (let i = 0; i < slotsNeeded && i < sortedPlayers.length; i++) {
+      const poolSize = Math.min(sortedPlayers.length, slotsNeeded * 2);
+      const index = (teamIndex + i) % poolSize;
+      selectedFillers.push(sortedPlayers[index]);
+    }
+
+    console.log(`🔧 Selected ${selectedFillers.length} strategic fillers`);
+    return selectedFillers;
+  }
+
+  private fixAndReturnRoleSplitTeam(
+    players: (Player & { aiScore: number; matchScore: number; formScore: number })[],
+    config: any,
+    match: Match,
+    request: TeamGenerationRequest,
+    teamIndex: number
+  ): AITeamAnalysis {
+    console.log(`🔧 Fixing team ${teamIndex + 1} composition`);
+    
+    // Create a valid team using fallback logic
+    const sortedPlayers = players.sort((a, b) => b.aiScore - a.aiScore);
+    const validCompositions = Dream11TeamValidator.generateValidTeamCompositions();
+    const targetComposition = validCompositions[teamIndex % validCompositions.length];
+    
+    const selectedPlayers: Player[] = [];
+    const roleTargets = { WK: targetComposition.WK, BAT: targetComposition.BAT, AR: targetComposition.AR, BWL: targetComposition.BWL };
+    const roleCounts = { WK: 0, BAT: 0, AR: 0, BWL: 0 };
+    
+    // Fill roles according to valid composition
+    for (const player of sortedPlayers) {
+      if (selectedPlayers.length >= 11) break;
+      
+      const role = player.player_role as keyof typeof roleCounts;
+      if (roleCounts[role] < roleTargets[role]) {
+        selectedPlayers.push(player);
+        roleCounts[role]++;
+      }
+    }
+    
+    // Fill any remaining slots
+    while (selectedPlayers.length < 11 && selectedPlayers.length < sortedPlayers.length) {
+      const nextPlayer = sortedPlayers.find(p => !selectedPlayers.includes(p));
+      if (nextPlayer) selectedPlayers.push(nextPlayer);
+    }
+
+    const { captain, viceCaptain } = this.selectIntelligentCaptains(selectedPlayers, teamIndex, match, config);
+    const teamStats = this.calculateEnhancedTeamStats(selectedPlayers, captain, viceCaptain, match, config);
+
+    return {
+      players: selectedPlayers.slice(0, 11),
+      captain,
+      viceCaptain,
+      totalCredits: teamStats.totalCredits,
+      roleBalance: teamStats.roleBalance,
+      riskScore: teamStats.riskScore,
+      expectedPoints: teamStats.expectedPoints,
+      confidence: teamStats.confidence - 10, // Lower confidence for fixed team
+      reasoning: `Fixed role-split team ${teamIndex + 1} with valid composition`,
+      insights: [`Team composition fixed to meet Dream11 requirements`]
+    };
+  }
+
+  private selectIntelligentCaptains(
+    players: Player[],
+    teamIndex: number,
+    match: Match,
+    config: any
+  ): { captain: Player; viceCaptain: Player } {
+    // Filter captain-worthy players with enhanced criteria
+    const captainCandidates = players.filter(p => 
+      ['BAT', 'AR', 'WK'].includes(p.player_role || 'BAT')
+    );
+
+    if (captainCandidates.length < 2) {
+      return { captain: players[0], viceCaptain: players[1] || players[0] };
+    }
+
+    // Enhanced captain scoring
+    const scoredCandidates = captainCandidates.map(player => ({
+      player,
+      captainScore: this.calculateCaptainScore(player, match, config)
+    })).sort((a, b) => b.captainScore - a.captainScore);
+
+    // Intelligent captain rotation for diversity
+    const poolSize = Math.min(scoredCandidates.length, 4);
+    const captainIndex = teamIndex % poolSize;
+    const viceCaptainIndex = (teamIndex + 1) % poolSize;
+
+    const captain = scoredCandidates[captainIndex].player;
+    const viceCaptain = scoredCandidates[
+      viceCaptainIndex === captainIndex ? 
+      (viceCaptainIndex + 1) % poolSize : 
+      viceCaptainIndex
+    ].player;
+
+    return { captain, viceCaptain };
+  }
+
+  private calculateCaptainScore(player: Player, match: Match, config: any): number {
+    let score = (player.points || 0) * 0.6; // Base performance
+    
+    // Role-based captain bonus
+    if (player.player_role === 'BAT') score += 15;
+    if (player.player_role === 'AR') score += 20; // All-rounders make great captains
+    if (player.player_role === 'WK') score += 10;
+    
+    // Form bonus
+    score += (player.selection_percentage || 0) * 0.3;
+    
+    // Match condition bonus
+    const pitchCondition = match.pitch_condition?.toLowerCase() || '';
+    if (pitchCondition.includes('bat') && player.player_role === 'BAT') {
+      score += 10;
+    }
+    
+    return score;
+  }
+
+  private applyPresetConfiguration(config: any, match: Match, teamIndex: number): any {
+    const enhancedConfig = { ...config };
+    
+    // Apply preset-specific modifications
+    switch (config.preset) {
+      case 'team-a-bias':
+        enhancedConfig.teamBias = 'teamA';
+        enhancedConfig.enforceVariation = true;
+        break;
+      case 'team-b-bias':
+        enhancedConfig.teamBias = 'teamB';
+        enhancedConfig.enforceVariation = true;
+        break;
+      case 'high-differential':
+        enhancedConfig.differentialFocus = true;
+        enhancedConfig.ownershipThreshold = 15;
+        enhancedConfig.enforceVariation = true;
+        break;
+      case 'balanced':
+        enhancedConfig.balanced = true;
+        enhancedConfig.enforceVariation = false;
+        break;
+      case 'all-rounder-heavy':
+        enhancedConfig.versatilityFocus = true;
+        enhancedConfig.enforceVariation = true;
+        break;
+      case 'top-order-stack':
+        enhancedConfig.powerplayFocus = true;
+        enhancedConfig.enforceVariation = true;
+        break;
+      case 'bowling-special':
+        enhancedConfig.bowlingConditions = true;
+        enhancedConfig.pitchCondition = match.pitch_condition;
+        enhancedConfig.enforceVariation = true;
+        break;
+      case 'death-overs':
+        enhancedConfig.deathOversFocus = true;
+        enhancedConfig.enforceVariation = true;
+        break;
+      default:
+        enhancedConfig.balanced = true;
+    }
+    
+    return enhancedConfig;
+  }
+
+  private selectPresetBasedPlayers(
+    players: (Player & { aiScore: number; matchScore: number; formScore: number; presetScore: number })[],
+    role: string,
+    count: number,
+    config: any,
+    teamIndex: number
+  ): Player[] {
+    if (count === 0 || players.length === 0) return [];
+
+    // Apply preset-specific sorting
+    const sortedPlayers = [...players];
+    
+    if (config.preset === 'high-differential') {
+      // Sort by low ownership + AI score
+      sortedPlayers.sort((a, b) => {
+        const ownershipA = a.selection_percentage || 50;
+        const ownershipB = b.selection_percentage || 50;
+        
+        if (ownershipA !== ownershipB) {
+          return ownershipA - ownershipB; // Lower ownership first
+        }
+        return b.aiScore - a.aiScore;
+      });
+    } else if (config.preset === 'all-rounder-heavy' && role === 'AR') {
+      // Prioritize versatile all-rounders
+      sortedPlayers.sort((a, b) => {
+        const versatilityA = this.calculateVersatilityScore(a);
+        const versatilityB = this.calculateVersatilityScore(b);
+        return versatilityB - versatilityA;
+      });
+    } else if (config.preset === 'top-order-stack' && role === 'BAT') {
+      // Prioritize top-order batsmen
+      sortedPlayers.sort((a, b) => {
+        const positionA = this.estimateBattingPosition(a);
+        const positionB = this.estimateBattingPosition(b);
+        
+        if (positionA !== positionB) {
+          return positionA - positionB;
+        }
+        return b.aiScore - a.aiScore;
+      });
+    } else if (config.preset === 'bowling-special' && role === 'BWL') {
+      // Prioritize bowlers for bowling conditions
+      sortedPlayers.sort((a, b) => {
+        const bowlingScoreA = this.calculateBowlingMatchScore(a, config);
+        const bowlingScoreB = this.calculateBowlingMatchScore(b, config);
+        
+        if (bowlingScoreA !== bowlingScoreB) {
+          return bowlingScoreB - bowlingScoreA;
+        }
+        return b.aiScore - a.aiScore;
+      });
+    } else if (config.preset === 'death-overs' && (role === 'BAT' || role === 'BWL')) {
+      // Prioritize death specialists
+      sortedPlayers.sort((a, b) => {
+        const deathScoreA = this.calculateDeathOverScore(a, role);
+        const deathScoreB = this.calculateDeathOverScore(b, role);
+        
+        if (deathScoreA !== deathScoreB) {
+          return deathScoreB - deathScoreA;
+        }
+        return b.aiScore - a.aiScore;
+      });
+    } else {
+      // Default: sort by AI score
+      sortedPlayers.sort((a, b) => b.aiScore - a.aiScore);
+    }
+
+    // Select players with variation
+    const selectedPlayers: Player[] = [];
+    const usedIndices = new Set<number>();
+
+    for (let i = 0; i < count && selectedPlayers.length < count; i++) {
+      let index = i;
+      
+      // Add variation for team diversity
+      if (teamIndex > 0 && config.enforceVariation) {
+        const variationRange = Math.min(3, Math.floor(sortedPlayers.length * 0.3));
+        const randomOffset = (teamIndex + i) % (variationRange + 1);
+        index = Math.min(i + randomOffset, sortedPlayers.length - 1);
+      }
+      
+      // Ensure unique selection
+      while (usedIndices.has(index) && index < sortedPlayers.length - 1) {
+        index++;
+      }
+      
+      if (index < sortedPlayers.length && !usedIndices.has(index)) {
+        selectedPlayers.push(sortedPlayers[index]);
+        usedIndices.add(index);
+      }
+    }
+
+    return selectedPlayers;
+  }
+
+  private calculateVersatilityScore(player: Player): number {
+    let score = 50;
+    
+    // All-rounders get base bonus
+    if (player.player_role === 'AR') {
+      score += 20;
+    }
+    
+    // Players with both batting and bowling stats
+    const hasBattingStats = (player.points || 0) > 40;
+    const hasBowlingStyle = !!player.bowling_style;
+    
+    if (hasBattingStats && hasBowlingStyle) {
+      score += 15;
+    }
+    
+    // High points indicate good performance in primary role
+    if ((player.points || 0) > 60) {
+      score += 10;
+    }
+    
+    return score;
+  }
+
+  private calculateBowlingMatchScore(player: Player, config: any): number {
+    let score = 50;
+    
+    // Bowling style preference based on conditions
+    const bowlingStyle = player.bowling_style?.toLowerCase() || '';
+    
+    if (config.pitchCondition) {
+      const condition = config.pitchCondition.toLowerCase();
+      
+      if (condition.includes('spin') && bowlingStyle.includes('spin')) {
+        score += 20;
+      } else if (condition.includes('pace') && !bowlingStyle.includes('spin')) {
+        score += 20;
+      } else if (condition.includes('bowl') && player.player_role === 'BWL') {
+        score += 15;
+      }
+    }
+    
+    return score;
+  }
+
+  private calculateDeathOverScore(player: Player, role: string): number {
+    let score = 50;
+    
+    if (role === 'BAT') {
+      // Finishers typically bat lower and have high strike rates
+      const battingPosition = this.estimateBattingPosition(player);
+      if (battingPosition >= 4) {
+        score += 15;
+      }
+      
+      // High points suggest good finishing ability
+      if ((player.points || 0) > 50) {
+        score += 10;
+      }
+    } else if (role === 'BWL') {
+      // Death bowlers typically pacers
+      const bowlingStyle = player.bowling_style?.toLowerCase() || '';
+      if (!bowlingStyle.includes('spin')) {
+        score += 15; // Preference for pacers in death overs
+      }
+      
+      // Higher points suggest better death bowling
+      if ((player.points || 0) > 50) {
+        score += 10;
+      }
+    }
+    
+    return score;
+  }
+
+  private calculateEnhancedTeamStats(
+    players: Player[],
+    captain: Player,
+    viceCaptain: Player,
+    match: Match,
+    config: any
+  ): {
+    totalCredits: number;
+    roleBalance: any;
+    riskScore: number;
+    expectedPoints: number;
+    confidence: number;
+  } {
+    const totalCredits = players.reduce((sum, p) => sum + (p.credits || 8), 0);
+    const roleBalance = this.calculateRoleBalance(players);
+    const riskScore = this.calculateRoleSplitRiskScore(config, players);
+    const expectedPoints = this.calculateExpectedPoints(players, captain, viceCaptain);
+    
+    // Enhanced confidence calculation
+    let confidence = 85;
+    if (config.prioritizeForm) confidence += 5;
+    if (config.diversityLevel === 'high') confidence += 3;
+    if (totalCredits <= 98) confidence += 2; // Credit efficiency bonus
+    
+    return { totalCredits, roleBalance, riskScore, expectedPoints, confidence };
+  }
+
+  private generateRoleSplitReasoning(
+    config: any,
+    teamIndex: number,
+    battingStrategy: string,
+    bowlingStrategy: string
+  ): string {
+    return `Intelligent role-split team ${teamIndex + 1}: ${config.topOrderBatsmen} top-order batsmen (${battingStrategy}), ${config.spinners} spinners + ${config.pacers} pacers (${bowlingStrategy}), optimized for match conditions with ${config.diversityLevel} diversity`;
+  }
+
+  private generateRoleSplitInsights(
+    players: Player[],
+    config: any,
+    teamIndex: number,
+    match: Match
+  ): string[] {
+    const insights = [
+      `Batting Strategy: ${config.topOrderBatsmen} top + ${config.middleOrderBatsmen} middle + ${config.lowerOrderBatsmen} lower order`,
+      `Bowling Strategy: ${config.spinners} spinners + ${config.pacers} pacers optimized for ${match.pitch_condition || 'standard'} pitch`,
+      `Role Balance: ${config.allRounders} all-rounders + ${config.wicketKeepers} wicket-keepers`,
+      `Diversity Level: ${config.diversityLevel} with ${config.prioritizeForm ? 'form-based' : 'balanced'} selection`,
+      `Team Credits: ${players.reduce((sum, p) => sum + (p.credits || 8), 0)}/100`
+    ];
+
+    // Add match-specific insights
+    const pitchCondition = match.pitch_condition?.toLowerCase() || '';
+    if (pitchCondition.includes('spin')) {
+      insights.push('🌀 Spin-friendly pitch adaptation applied');
+    }
+    if (pitchCondition.includes('pace')) {
+      insights.push('⚡ Pace-friendly pitch adaptation applied');
+    }
+
+    return insights;
   }
 
   private selectRoleSplitPlayers(rolePlayers: Player[], count: number, teamIndex: number, prioritizeForm: boolean): Player[] {
@@ -1492,9 +2681,220 @@ export class AIService {
   }
 
   // Helper methods for team generation
-  private generateBaseTeamVariations(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
-    // TODO: Implement base team variations for Strategy 8
-    return Promise.resolve([]);
+  private async generateBaseTeamVariations(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
+    try {
+      console.log('🎯 Strategy 8: Generating base team variations');
+      
+      const { baseTeam, optimizationRules } = request.userPreferences || {};
+      
+      if (!baseTeam || !Array.isArray(baseTeam) || baseTeam.length !== 11) {
+        console.error('❌ Strategy 8: Invalid base team provided');
+        return [];
+      }
+
+      if (!optimizationRules) {
+        console.error('❌ Strategy 8: No optimization rules provided');
+        return [];
+      }
+
+      const teams: AITeamAnalysis[] = [];
+      
+      // Get all available players for the match
+      const allPlayers = await neonDB.getPlayingPlayersForMatch(request.matchId);
+      
+      if (!allPlayers || allPlayers.length === 0) {
+        console.error('❌ Strategy 8: No players found for match');
+        return [];
+      }
+
+      for (let teamIndex = 0; teamIndex < request.teamCount; teamIndex++) {
+        const variation = await this.createBaseTeamVariation(
+          baseTeam,
+          allPlayers,
+          optimizationRules,
+          teamIndex
+        );
+        teams.push(variation);
+      }
+
+      console.log(`✅ Strategy 8: Generated ${teams.length} team variations`);
+      return teams;
+    } catch (error) {
+      console.error('❌ Strategy 8 error:', error);
+      return [];
+    }
+  }
+
+  private async createBaseTeamVariation(
+    baseTeam: Player[],
+    allPlayers: Player[],
+    rules: any,
+    teamIndex: number
+  ): Promise<AITeamAnalysis> {
+    // Create a copy of the base team
+    let currentTeam = [...baseTeam];
+    
+    // Determine edit intensity based on team index and rules
+    const editIntensity = rules.editIntensity || 'minor';
+    let editsToMake = 0;
+    
+    switch (editIntensity) {
+      case 'minor':
+        editsToMake = teamIndex % 3 === 0 ? 1 : 2; // 1-2 edits
+        break;
+      case 'moderate':
+        editsToMake = 2 + (teamIndex % 3); // 2-4 edits
+        break;
+      case 'major':
+        editsToMake = 3 + (teamIndex % 4); // 3-6 edits
+        break;
+    }
+
+    // Apply systematic edits
+    for (let editCount = 0; editCount < editsToMake; editCount++) {
+      currentTeam = this.applyRuleBasedEdit(
+        currentTeam,
+        allPlayers,
+        rules,
+        teamIndex,
+        editCount
+      );
+    }
+
+    // Validate Dream11 constraints using static method
+    const validationResult = Dream11TeamValidator.validateTeamComposition(currentTeam);
+    if (!validationResult.isValid) {
+      console.warn(`Team ${teamIndex + 1} failed validation, reverting to base team`);
+      currentTeam = [...baseTeam];
+    }
+
+    // Select captain and vice-captain with variation
+    const captaincy = this.selectCaptaincyVariation(currentTeam, teamIndex);
+
+    return {
+      players: currentTeam,
+      captain: captaincy.captain,
+      viceCaptain: captaincy.viceCaptain,
+      totalCredits: currentTeam.reduce((sum, p) => sum + (p.credits || 8), 0),
+      expectedPoints: this.estimateTeamPoints(currentTeam),
+      confidence: Math.max(60, 85 - (editsToMake * 5)), // Lower confidence for more edits
+      riskScore: 40 + (editsToMake * 10), // Higher risk for more edits
+      reasoning: `Base team with ${editsToMake} strategic ${editsToMake === 1 ? 'edit' : 'edits'}, optimizing for ${rules.primaryParameter || 'balanced'}`,
+      roleBalance: this.calculateRoleBalanceForStrategy8(currentTeam)
+    };
+  }
+
+  private applyRuleBasedEdit(
+    team: Player[],
+    allPlayers: Player[],
+    rules: any,
+    teamIndex: number,
+    editIndex: number
+  ): Player[] {
+    const newTeam = [...team];
+    const { primaryParameter, preferences } = rules;
+    
+    // Determine which position to edit based on systematic approach
+    const positionToEdit = (teamIndex + editIndex) % 11;
+    const playerToReplace = newTeam[positionToEdit];
+    
+    if (!playerToReplace) return newTeam;
+
+    // Find replacement candidates of the same role
+    const sameRolePlayers = allPlayers.filter(p => 
+      p.player_role === playerToReplace.player_role &&
+      p.id !== playerToReplace.id &&
+      !newTeam.some(tp => tp.id === p.id)
+    );
+
+    if (sameRolePlayers.length === 0) return newTeam;
+
+    // Select replacement based on primary parameter and edit strategy
+    let replacement: Player;
+    
+    switch (primaryParameter) {
+      case 'dreamTeamPercentage':
+        replacement = sameRolePlayers.sort((a, b) => 
+          (b.dream_team_percentage || 0) - (a.dream_team_percentage || 0)
+        )[editIndex % sameRolePlayers.length];
+        break;
+      case 'selectionPercentage':
+        replacement = sameRolePlayers.sort((a, b) => 
+          (b.selection_percentage || 0) - (a.selection_percentage || 0)
+        )[editIndex % sameRolePlayers.length];
+        break;
+      case 'averagePoints':
+        replacement = sameRolePlayers.sort((a, b) => 
+          (b.points || 0) - (a.points || 0)
+        )[editIndex % sameRolePlayers.length];
+        break;
+      default:
+        // Random selection for diversity
+        replacement = sameRolePlayers[editIndex % sameRolePlayers.length];
+    }
+
+    // Apply risk tolerance filter
+    if (preferences?.riskTolerance === 'conservative' && (replacement.selection_percentage || 0) < 30) {
+      // Find a safer option
+      const safeOptions = sameRolePlayers.filter(p => (p.selection_percentage || 0) >= 30);
+      if (safeOptions.length > 0) {
+        replacement = safeOptions[0];
+      }
+    } else if (preferences?.riskTolerance === 'aggressive' && (replacement.selection_percentage || 0) > 60) {
+      // Find a more differential option
+      const riskOptions = sameRolePlayers.filter(p => (p.selection_percentage || 0) <= 60);
+      if (riskOptions.length > 0) {
+        replacement = riskOptions[0];
+      }
+    }
+
+    newTeam[positionToEdit] = replacement;
+    return newTeam;
+  }
+
+  private selectCaptaincyVariation(team: Player[], teamIndex: number): { captain: Player; viceCaptain: Player } {
+    // Get captain-worthy players (BAT, AR, WK with high points/credits)
+    const captainCandidates = team
+      .filter(p => ['BAT', 'AR', 'WK'].includes(p.player_role))
+      .sort((a, b) => (b.points || 0) - (a.points || 0));
+
+    if (captainCandidates.length < 2) {
+      return { captain: team[0], viceCaptain: team[1] };
+    }
+
+    // Rotate captaincy based on team index
+    const captainIndex = teamIndex % Math.min(captainCandidates.length, 4);
+    const viceCaptainIndex = (teamIndex + 1) % Math.min(captainCandidates.length, 4);
+
+    return {
+      captain: captainCandidates[captainIndex],
+      viceCaptain: captainCandidates[viceCaptainIndex]
+    };
+  }
+
+  private estimateTeamPoints(team: Player[]): number {
+    return team.reduce((sum, player) => sum + (player.points || 0), 0);
+  }
+
+  private calculateRoleBalanceForStrategy8(team: Player[]): { batsmen: number; bowlers: number; allRounders: number; wicketKeepers: number } {
+    const roles = { batsmen: 0, bowlers: 0, allRounders: 0, wicketKeepers: 0 };
+    team.forEach(player => {
+      switch (player.player_role) {
+        case 'BAT':
+          roles.batsmen++;
+          break;
+        case 'BWL':
+          roles.bowlers++;
+          break;
+        case 'AR':
+          roles.allRounders++;
+          break;
+        case 'WK':
+          roles.wicketKeepers++;
+          break;
+      }
+    });
+    return roles;
   }
 
   private applyStrategyFiltering(
@@ -1578,6 +2978,70 @@ export class AIService {
     const captain = sortedCandidates[captainIndex];
     const viceCaptain = sortedCandidates[viceCaptainIndex === captainIndex ? 
       (viceCaptainIndex + 1) % sortedCandidates.length : viceCaptainIndex];
+
+    return { captain, viceCaptain };
+  }
+
+  private selectCaptainFromOrder(
+    players: Player[],
+    captainOrder: string[],
+    teamIndex: number
+  ): { captain: Player; viceCaptain: Player } {
+    // If no captain order provided, use default varied selection
+    if (!captainOrder || captainOrder.length === 0) {
+      const eligiblePlayers = players.filter(p => 
+        ['BAT', 'BWL', 'AR'].includes(p.player_role || 'BAT')
+      );
+      
+      if (eligiblePlayers.length < 2) {
+        const captain = players[0];
+        const viceCaptain = players[1] || players[0];
+        return { captain, viceCaptain };
+      }
+      
+      const captainIndex = teamIndex % eligiblePlayers.length;
+      const viceCaptainIndex = (teamIndex + 1) % eligiblePlayers.length;
+      
+      return {
+        captain: eligiblePlayers[captainIndex],
+        viceCaptain: eligiblePlayers[viceCaptainIndex === captainIndex ? 
+          (viceCaptainIndex + 1) % eligiblePlayers.length : viceCaptainIndex]
+      };
+    }
+
+    // Find players in the team that match the captain order
+    const availableCaptains = captainOrder
+      .map(name => players.find(p => p.name === name))
+      .filter((p): p is Player => !!p);
+
+    if (availableCaptains.length === 0) {
+      // Fallback to first eligible player
+      const eligiblePlayers = players.filter(p => 
+        ['BAT', 'BWL', 'AR'].includes(p.player_role || 'BAT')
+      );
+      const captain = eligiblePlayers[0] || players[0];
+      const viceCaptain = eligiblePlayers[1] || players[1] || players[0];
+      return { captain, viceCaptain };
+    }
+
+    // Rotate through available captains based on team index
+    const captainIndex = teamIndex % availableCaptains.length;
+    const captain = availableCaptains[captainIndex];
+
+    // Select vice-captain (next in order or second choice)
+    let viceCaptain = captain; // fallback
+    if (availableCaptains.length > 1) {
+      const viceCaptainIndex = (captainIndex + 1) % availableCaptains.length;
+      viceCaptain = availableCaptains[viceCaptainIndex];
+    } else {
+      // Find alternative vice-captain from team
+      const alternatives = players.filter(p => 
+        p.id !== captain.id && ['BAT', 'BWL', 'AR'].includes(p.player_role || 'BAT')
+      );
+      if (alternatives.length > 0) {
+        viceCaptain = alternatives[0];
+      }
+    }
 
     return { captain, viceCaptain };
   }

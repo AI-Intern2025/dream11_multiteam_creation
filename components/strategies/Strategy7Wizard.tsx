@@ -90,6 +90,7 @@ export default function Strategy7Wizard({ matchId, onGenerate }: Strategy7Wizard
 
   const handleGenerateTeams = () => {
     const strategyData = {
+      strategy: 'role-split', // Explicitly set strategy type
       roleSplitConfig: config,
       teamNames: { teamA: teamAName, teamB: teamBName },
       matchConditions: {
@@ -103,55 +104,158 @@ export default function Strategy7Wizard({ matchId, onGenerate }: Strategy7Wizard
 
   const presetConfigurations = [
     {
-      name: 'Balanced Traditional',
-      description: 'Balanced batting order with equal spin/pace',
+      id: 'team-a-bias',
+      name: 'Team A High Total, Team B Collapse',
+      description: 'Heavy investment in Team A batsmen with Team B bowlers for collapse scenario',
+      tags: ['Team A Focus', 'Collapse Strategy'],
+      riskLevel: 'High',
+      strategy: 'Load up on Team A top-order batsmen and Team B bowlers',
+      config: {
+        topOrderBatsmen: 4,
+        middleOrderBatsmen: 2,
+        lowerOrderBatsmen: 0,
+        spinners: 2,
+        pacers: 2,
+        wicketKeepers: 1,
+        allRounders: 1,
+        teamBias: 'teamA',
+        aggressiveness: 'high',
+        preset: 'team-a-bias'
+      }
+    },
+    {
+      id: 'team-b-bias',
+      name: 'Team B High Total, Team A Collapse',
+      description: 'Heavy investment in Team B batsmen with Team A bowlers for collapse scenario',
+      tags: ['Team B Focus', 'Collapse Strategy'],
+      riskLevel: 'High',
+      strategy: 'Load up on Team B top-order batsmen and Team A bowlers',
+      config: {
+        topOrderBatsmen: 4,
+        middleOrderBatsmen: 2,
+        lowerOrderBatsmen: 0,
+        spinners: 2,
+        pacers: 2,
+        wicketKeepers: 1,
+        allRounders: 1,
+        teamBias: 'teamB',
+        aggressiveness: 'high',
+        preset: 'team-b-bias'
+      }
+    },
+    {
+      id: 'high-differential',
+      name: 'High Differentials Strategy',
+      description: 'Focus on low-ownership players to create unique lineups with high upside',
+      tags: ['Low Ownership', 'Tournament Strategy'],
+      riskLevel: 'High',
+      strategy: 'Pick players under 20% ownership for maximum differentiation',
+      config: {
+        topOrderBatsmen: 2,
+        middleOrderBatsmen: 3,
+        lowerOrderBatsmen: 1,
+        spinners: 2,
+        pacers: 2,
+        wicketKeepers: 1,
+        allRounders: 1,
+        differentialFocus: true,
+        ownershipThreshold: 20,
+        preset: 'high-differential'
+      }
+    },
+    {
+      id: 'balanced',
+      name: 'Balanced Roles',
+      description: 'Well-balanced team with moderate risk and consistent performance expectations',
+      tags: ['Balanced', 'Safe Play'],
+      riskLevel: 'Medium',
+      strategy: 'Equal representation from both teams with proven performers',
       config: {
         topOrderBatsmen: 3,
         middleOrderBatsmen: 2,
         lowerOrderBatsmen: 1,
         spinners: 2,
-        pacers: 1,
+        pacers: 2,
         wicketKeepers: 1,
-        allRounders: 1
+        allRounders: 1,
+        balanced: true,
+        preset: 'balanced'
       }
     },
     {
-      name: 'Top-Heavy Batting',
-      description: 'Stack top-order batsmen',
-      config: {
-        topOrderBatsmen: 4,
-        middleOrderBatsmen: 2,
-        lowerOrderBatsmen: 1,
-        spinners: 1,
-        pacers: 1,
-        wicketKeepers: 1,
-        allRounders: 1
-      }
-    },
-    {
-      name: 'Bowling Heavy',
-      description: 'More bowlers, fewer batsmen',
+      id: 'all-rounder-heavy',
+      name: 'All-Rounder Heavy Lineup',
+      description: 'Maximize all-rounders for flexible scoring options and increased points potential',
+      tags: ['Versatility', 'High Floor'],
+      riskLevel: 'Medium',
+      strategy: 'Load up on quality all-rounders who contribute in multiple disciplines',
       config: {
         topOrderBatsmen: 2,
         middleOrderBatsmen: 1,
         lowerOrderBatsmen: 1,
-        spinners: 2,
+        spinners: 1,
         pacers: 2,
         wicketKeepers: 1,
-        allRounders: 2
+        allRounders: 4,
+        versatilityFocus: true,
+        preset: 'all-rounder-heavy'
       }
     },
     {
-      name: 'Spin-Friendly Pitch',
-      description: 'More spinners for turning tracks',
+      id: 'top-order-stack',
+      name: 'Top Order Batting Stack',
+      description: 'Heavy focus on top-order batsmen for powerplay and stable scoring',
+      tags: ['Powerplay Focus', 'Batting Heavy'],
+      riskLevel: 'Medium',
+      strategy: 'Prioritize openers and #3 batsmen from both teams',
       config: {
-        topOrderBatsmen: 2,
-        middleOrderBatsmen: 2,
-        lowerOrderBatsmen: 1,
-        spinners: 3,
+        topOrderBatsmen: 5,
+        middleOrderBatsmen: 1,
+        lowerOrderBatsmen: 0,
+        spinners: 2,
         pacers: 1,
         wicketKeepers: 1,
-        allRounders: 1
+        allRounders: 1,
+        powerplayFocus: true,
+        preset: 'top-order-stack'
+      }
+    },
+    {
+      id: 'bowling-special',
+      name: 'Bowling Pitch Special',
+      description: 'Extra bowlers for bowling-friendly conditions and low-scoring games',
+      tags: ['Bowling Conditions', 'Low Total'],
+      riskLevel: 'High',
+      strategy: 'Load up on wicket-taking bowlers for helpful bowling conditions',
+      config: {
+        topOrderBatsmen: 2,
+        middleOrderBatsmen: 1,
+        lowerOrderBatsmen: 1,
+        spinners: 3,
+        pacers: 2,
+        wicketKeepers: 1,
+        allRounders: 1,
+        bowlingConditions: true,
+        preset: 'bowling-special'
+      }
+    },
+    {
+      id: 'death-overs',
+      name: 'Death Overs Specialists',
+      description: 'Focus on finishers and death bowlers for back-end execution',
+      tags: ['Death Overs', 'Specialist'],
+      riskLevel: 'High',
+      strategy: 'Target players who excel in death overs - finishers and death bowlers',
+      config: {
+        topOrderBatsmen: 2,
+        middleOrderBatsmen: 3,
+        lowerOrderBatsmen: 1,
+        spinners: 1,
+        pacers: 2,
+        wicketKeepers: 1,
+        allRounders: 1,
+        deathOversFocus: true,
+        preset: 'death-overs'
       }
     }
   ];
@@ -159,7 +263,12 @@ export default function Strategy7Wizard({ matchId, onGenerate }: Strategy7Wizard
   const applyPreset = (preset: any, index: number) => {
     setConfig(prev => ({
       ...prev,
-      ...preset.config
+      ...preset.config,
+      preset: preset.name.toLowerCase().replace(/ /g, '-').replace(/[^a-z0-9-]/g, ''), // Add preset identifier
+      presetName: preset.name, // Add readable preset name
+      presetStrategy: preset.strategy, // Add strategy description
+      presetRiskLevel: preset.riskLevel, // Add risk level
+      presetTags: preset.tags // Add tags
     }));
     setSelectedPreset(index);
   };
@@ -190,13 +299,40 @@ export default function Strategy7Wizard({ matchId, onGenerate }: Strategy7Wizard
                          : 'hover:bg-gray-50 border-gray-200'
                      }`}
                      onClick={() => applyPreset(preset, index)}>
-                  <h3 className="font-semibold">{preset.name}</h3>
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="font-semibold text-sm">{preset.name}</h3>
+                    <Badge 
+                      variant={preset.riskLevel === 'High' ? 'destructive' : 
+                              preset.riskLevel === 'Medium' ? 'default' : 'secondary'}
+                      className="text-xs ml-2"
+                    >
+                      {preset.riskLevel} risk
+                    </Badge>
+                  </div>
                   <p className="text-sm text-gray-600 mb-2">{preset.description}</p>
-                  <div className="text-xs text-gray-500">
+                  
+                  <div className="mb-3">
+                    <p className="text-xs font-medium text-gray-700 mb-1">Strategy:</p>
+                    <p className="text-xs text-gray-600">{preset.strategy}</p>
+                  </div>
+
+                  <div className="mb-3">
+                    <p className="text-xs font-medium text-gray-700 mb-1">Tags:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {preset.tags?.map((tag, tagIndex) => (
+                        <span key={tagIndex} className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-gray-500 border-t pt-2">
                     TOP: {preset.config.topOrderBatsmen} | MID: {preset.config.middleOrderBatsmen} | 
                     SPIN: {preset.config.spinners} | PACE: {preset.config.pacers} | 
                     AR: {preset.config.allRounders} | WK: {preset.config.wicketKeepers}
                   </div>
+                  
                   {selectedPreset === index && (
                     <div className="mt-2">
                       <Badge variant="default" className="text-xs">Selected</Badge>
@@ -494,7 +630,7 @@ export default function Strategy7Wizard({ matchId, onGenerate }: Strategy7Wizard
             <div className="p-4 bg-gray-50 rounded-lg">
               <h4 className="font-semibold mb-2">AI Strategy Summary:</h4>
               <p className="text-gray-800 italic">
-                "Generating {config.teamCount} teams with role-split configuration: {config.topOrderBatsmen} top-order, {config.middleOrderBatsmen} middle-order batsmen, {config.spinners} spinners, {config.pacers} pacers, optimized for {matchData?.match?.pitch_condition || 'unknown'} pitch conditions."
+                &quot;Generating {config.teamCount} teams with role-split configuration: {config.topOrderBatsmen} top-order, {config.middleOrderBatsmen} middle-order batsmen, {config.spinners} spinners, {config.pacers} pacers, optimized for {matchData?.match?.pitch_condition || 'unknown'} pitch conditions.&quot;
               </p>
             </div>
           </CardContent>
