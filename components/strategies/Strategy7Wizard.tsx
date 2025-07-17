@@ -3,540 +3,514 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
-import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { useMatchData } from '@/hooks/use-cricket-data';
 
 interface Strategy7WizardProps {
   matchId: string;
   onGenerate: (prefs: any, count: number) => void;
 }
 
-export default function Strategy7Wizard({ matchId, onGenerate }: Strategy7WizardProps) {
-  const [teamCount, setTeamCount] = useState(15);
-  const [stage, setStage] = useState<'configuration' | 'summary'>('configuration');
+interface RoleSplitConfig {
+  // Batting order split
+  topOrderBatsmen: number;    // Positions 1-3
+  middleOrderBatsmen: number; // Positions 4-6
+  lowerOrderBatsmen: number;  // Positions 7-11
   
-  const [configuration, setConfiguration] = useState({
-    battingOrder: {
-      topOrder: 3, // 1-3
-      middleOrder: 3, // 4-6
-      lowerOrder: 2 // 7-11
-    },
-    bowlingStyle: {
-      pacers: 3,
-      spinners: 2,
-      hybrid: 1 // all-rounders who bowl
-    },
-    roleDistribution: {
-      batsmen: 4,
-      bowlers: 3,
-      allRounders: 3,
-      wicketKeepers: 1
-    },
-    teamSplit: {
-      teamA: 6,
-      teamB: 5
-    }
+  // Bowling type split
+  spinners: number;
+  pacers: number;
+  
+  // General role requirements
+  wicketKeepers: number;
+  allRounders: number;
+  
+  // Team generation settings
+  teamCount: number;
+  
+  // Advanced options
+  prioritizeForm: boolean;
+  balanceCredits: boolean;
+  diversityLevel: 'low' | 'medium' | 'high';
+}
+
+export default function Strategy7Wizard({ matchId, onGenerate }: Strategy7WizardProps) {
+  const { data: matchData } = useMatchData(matchId);
+  const [stage, setStage] = useState<'configure' | 'summary'>('configure');
+  const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
+  const [config, setConfig] = useState<RoleSplitConfig>({
+    topOrderBatsmen: 3,
+    middleOrderBatsmen: 2,
+    lowerOrderBatsmen: 1,
+    spinners: 2,
+    pacers: 1,
+    wicketKeepers: 1,
+    allRounders: 1,
+    teamCount: 15,
+    prioritizeForm: true,
+    balanceCredits: true,
+    diversityLevel: 'medium'
   });
 
-  const updateBattingOrder = (type: string, value: number) => {
-    setConfiguration(prev => ({
-      ...prev,
-      battingOrder: {
-        ...prev.battingOrder,
-        [type]: value
-      }
-    }));
-  };
+  const matchName = matchData?.match?.team_a_name && matchData?.match?.team_b_name 
+    ? `${matchData.match.team_a_name} vs ${matchData.match.team_b_name}`
+    : 'Team A vs Team B';
+  const [teamAName, teamBName] = matchName.split(' vs ');
 
-  const updateBowlingStyle = (type: string, value: number) => {
-    setConfiguration(prev => ({
-      ...prev,
-      bowlingStyle: {
-        ...prev.bowlingStyle,
-        [type]: value
-      }
-    }));
-  };
+  // Calculate total players - this should always be 11 for a valid Dream11 team
+  const battingPositions = config.topOrderBatsmen + config.middleOrderBatsmen + config.lowerOrderBatsmen;
+  const bowlingTypes = config.spinners + config.pacers;
+  const coreRoles = config.wicketKeepers + config.allRounders;
+  
+  // Total of all role preferences should equal 11
+  const totalRolePreferences = battingPositions + bowlingTypes + coreRoles;
+  
+  // Validation: total should be exactly 11
+  const isConfigValid = totalRolePreferences === 11;
 
-  const updateRoleDistribution = (type: string, value: number) => {
-    setConfiguration(prev => ({
+  const handleConfigChange = (field: keyof RoleSplitConfig, value: any) => {
+    setConfig(prev => ({
       ...prev,
-      roleDistribution: {
-        ...prev.roleDistribution,
-        [type]: value
-      }
+      [field]: value
     }));
-  };
-
-  const updateTeamSplit = (teamA: number) => {
-    setConfiguration(prev => ({
-      ...prev,
-      teamSplit: {
-        teamA,
-        teamB: 11 - teamA
-      }
-    }));
+    setSelectedPreset(null); // Reset preset selection when manually changing values
   };
 
   const handleSaveConfig = () => {
+    if (!isConfigValid) {
+      const errorMessage = `Invalid configuration: Total role preferences (${totalRolePreferences}) must equal exactly 11 players.\n\nCurrent breakdown:\n- Batting positions: ${battingPositions}\n- Bowling types: ${bowlingTypes}\n- Core roles: ${coreRoles}\n\nPlease adjust the numbers to total exactly 11.`;
+      alert(errorMessage);
+      return;
+    }
     setStage('summary');
   };
 
   const handleGenerateTeams = () => {
     const strategyData = {
-      configuration,
-      summary: generateSummary()
+      roleSplitConfig: config,
+      teamNames: { teamA: teamAName, teamB: teamBName },
+      matchConditions: {
+        pitch: matchData?.match?.pitch_condition,
+        weather: matchData?.match?.weather_condition,
+        venue: matchData?.match?.venue_condition
+      }
     };
-    onGenerate(strategyData, teamCount);
+    onGenerate(strategyData, config.teamCount);
   };
 
-  const generateSummary = () => {
-    const { battingOrder, bowlingStyle, roleDistribution } = configuration;
-    
-    let summary = `Optimized lineups with ${battingOrder.topOrder} top-order, ${battingOrder.middleOrder} middle-order batsmen. `;
-    
-    if (bowlingStyle.pacers > bowlingStyle.spinners) {
-      summary += `Pace-heavy attack (${bowlingStyle.pacers} pacers, ${bowlingStyle.spinners} spinners). `;
-    } else if (bowlingStyle.spinners > bowlingStyle.pacers) {
-      summary += `Spin-heavy attack (${bowlingStyle.spinners} spinners, ${bowlingStyle.pacers} pacers). `;
-    } else {
-      summary += `Balanced bowling attack. `;
+  const presetConfigurations = [
+    {
+      name: 'Balanced Traditional',
+      description: 'Balanced batting order with equal spin/pace',
+      config: {
+        topOrderBatsmen: 3,
+        middleOrderBatsmen: 2,
+        lowerOrderBatsmen: 1,
+        spinners: 2,
+        pacers: 1,
+        wicketKeepers: 1,
+        allRounders: 1
+      }
+    },
+    {
+      name: 'Top-Heavy Batting',
+      description: 'Stack top-order batsmen',
+      config: {
+        topOrderBatsmen: 4,
+        middleOrderBatsmen: 2,
+        lowerOrderBatsmen: 1,
+        spinners: 1,
+        pacers: 1,
+        wicketKeepers: 1,
+        allRounders: 1
+      }
+    },
+    {
+      name: 'Bowling Heavy',
+      description: 'More bowlers, fewer batsmen',
+      config: {
+        topOrderBatsmen: 2,
+        middleOrderBatsmen: 1,
+        lowerOrderBatsmen: 1,
+        spinners: 2,
+        pacers: 2,
+        wicketKeepers: 1,
+        allRounders: 2
+      }
+    },
+    {
+      name: 'Spin-Friendly Pitch',
+      description: 'More spinners for turning tracks',
+      config: {
+        topOrderBatsmen: 2,
+        middleOrderBatsmen: 2,
+        lowerOrderBatsmen: 1,
+        spinners: 3,
+        pacers: 1,
+        wicketKeepers: 1,
+        allRounders: 1
+      }
     }
-    
-    if (roleDistribution.allRounders >= 3) {
-      summary += `All-rounder heavy composition for flexibility.`;
-    } else {
-      summary += `Traditional role distribution.`;
-    }
-    
-    return summary;
+  ];
+
+  const applyPreset = (preset: any, index: number) => {
+    setConfig(prev => ({
+      ...prev,
+      ...preset.config
+    }));
+    setSelectedPreset(index);
   };
 
-  const getTotalPlayers = () => {
-    return Object.values(configuration.roleDistribution).reduce((sum, count) => sum + count, 0);
-  };
-
-  const getTotalBowlers = () => {
-    return Object.values(configuration.bowlingStyle).reduce((sum, count) => sum + count, 0);
-  };
-
-  if (stage === 'configuration') {
+  if (stage === 'configure') {
     return (
-      <div className="container mx-auto p-4">
+      <div className="container mx-auto p-4 max-w-4xl">
         <div className="mb-6">
-          <h2 className="text-2xl font-bold mb-2">Role-Split Lineups</h2>
+          <h2 className="text-2xl font-bold mb-2">Role-Split Lineups Configuration</h2>
           <p className="text-gray-600 mb-4">
-            Define precise role ratios and batting order preferences to optimize team composition.
+            Define specific role ratios for your fantasy teams including batting order and bowling type splits.
           </p>
         </div>
 
+        {/* Preset Configurations */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Quick Presets</CardTitle>
+            <CardDescription>Choose from pre-configured role splits or customize your own</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {presetConfigurations.map((preset, index) => (
+                <div key={index} 
+                     className={`p-4 border rounded-lg cursor-pointer transition-all duration-200 ${
+                       selectedPreset === index 
+                         ? 'bg-blue-50 border-blue-500 shadow-md' 
+                         : 'hover:bg-gray-50 border-gray-200'
+                     }`}
+                     onClick={() => applyPreset(preset, index)}>
+                  <h3 className="font-semibold">{preset.name}</h3>
+                  <p className="text-sm text-gray-600 mb-2">{preset.description}</p>
+                  <div className="text-xs text-gray-500">
+                    TOP: {preset.config.topOrderBatsmen} | MID: {preset.config.middleOrderBatsmen} | 
+                    SPIN: {preset.config.spinners} | PACE: {preset.config.pacers} | 
+                    AR: {preset.config.allRounders} | WK: {preset.config.wicketKeepers}
+                  </div>
+                  {selectedPreset === index && (
+                    <div className="mt-2">
+                      <Badge variant="default" className="text-xs">Selected</Badge>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {selectedPreset !== null && (
+              <div className="mt-4 flex justify-end">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setSelectedPreset(null)}
+                >
+                  Clear Selection & Customize
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Batting Order Configuration */}
+          {/* Batting Order Split */}
           <Card>
             <CardHeader>
               <CardTitle>Batting Order Split</CardTitle>
-              <CardDescription>Define how many players from each batting position</CardDescription>
+              <CardDescription>Define batsmen distribution across batting positions</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-4">
               <div>
-                <Label className="text-sm font-medium">Top Order (1-3): {configuration.battingOrder.topOrder}</Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.battingOrder.topOrder]}
-                    onValueChange={([value]) => updateBattingOrder('topOrder', value)}
-                    min={1}
-                    max={6}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">Openers and #3 batsmen</p>
+                <Label htmlFor="topOrder">Top Order (Positions 1-3)</Label>
+                <Input
+                  id="topOrder"
+                  type="number"
+                  min="0"
+                  max="5"
+                  value={config.topOrderBatsmen}
+                  onChange={(e) => handleConfigChange('topOrderBatsmen', parseInt(e.target.value) || 0)}
+                />
               </div>
-
+              
               <div>
-                <Label className="text-sm font-medium">Middle Order (4-6): {configuration.battingOrder.middleOrder}</Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.battingOrder.middleOrder]}
-                    onValueChange={([value]) => updateBattingOrder('middleOrder', value)}
-                    min={1}
-                    max={6}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">Anchors and accelerators</p>
+                <Label htmlFor="middleOrder">Middle Order (Positions 4-6)</Label>
+                <Input
+                  id="middleOrder"
+                  type="number"
+                  min="0"
+                  max="5"
+                  value={config.middleOrderBatsmen}
+                  onChange={(e) => handleConfigChange('middleOrderBatsmen', parseInt(e.target.value) || 0)}
+                />
               </div>
-
+              
               <div>
-                <Label className="text-sm font-medium">Lower Order (7-11): {configuration.battingOrder.lowerOrder}</Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.battingOrder.lowerOrder]}
-                    onValueChange={([value]) => updateBattingOrder('lowerOrder', value)}
-                    min={0}
-                    max={5}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">Finishers and tailenders</p>
+                <Label htmlFor="lowerOrder">Lower Order (Positions 7-11)</Label>
+                <Input
+                  id="lowerOrder"
+                  type="number"
+                  min="0"
+                  max="3"
+                  value={config.lowerOrderBatsmen}
+                  onChange={(e) => handleConfigChange('lowerOrderBatsmen', parseInt(e.target.value) || 0)}
+                />
               </div>
             </CardContent>
           </Card>
 
-          {/* Bowling Style Configuration */}
+          {/* Bowling Split */}
           <Card>
             <CardHeader>
-              <CardTitle>Bowling Attack Split</CardTitle>
-              <CardDescription>Balance between pace and spin</CardDescription>
+              <CardTitle>Bowling Type Split</CardTitle>
+              <CardDescription>Define spinner vs pacer distribution</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-4">
               <div>
-                <Label className="text-sm font-medium">Pace Bowlers: {configuration.bowlingStyle.pacers}</Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.bowlingStyle.pacers]}
-                    onValueChange={([value]) => updateBowlingStyle('pacers', value)}
-                    min={1}
-                    max={6}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">Fast and medium pacers</p>
+                <Label htmlFor="spinners">Spinners</Label>
+                <Input
+                  id="spinners"
+                  type="number"
+                  min="0"
+                  max="5"
+                  value={config.spinners}
+                  onChange={(e) => handleConfigChange('spinners', parseInt(e.target.value) || 0)}
+                />
               </div>
-
+              
               <div>
-                <Label className="text-sm font-medium">Spin Bowlers: {configuration.bowlingStyle.spinners}</Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.bowlingStyle.spinners]}
-                    onValueChange={([value]) => updateBowlingStyle('spinners', value)}
-                    min={0}
-                    max={5}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">Leg and off spinners</p>
-              </div>
-
-              <div>
-                <Label className="text-sm font-medium">Hybrid Bowlers: {configuration.bowlingStyle.hybrid}</Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.bowlingStyle.hybrid]}
-                    onValueChange={([value]) => updateBowlingStyle('hybrid', value)}
-                    min={0}
-                    max={4}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">All-rounders who bowl</p>
-              </div>
-
-              <div className="p-3 bg-gray-50 rounded">
-                <div className="text-sm font-medium">Total Bowlers: {getTotalBowlers()}</div>
-                <p className="text-xs text-gray-500">Recommended: 5-6 bowling options</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Role Distribution */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Role Distribution</CardTitle>
-              <CardDescription>Primary role-based team composition</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <Label className="text-sm font-medium">Batsmen: {configuration.roleDistribution.batsmen}</Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.roleDistribution.batsmen]}
-                    onValueChange={([value]) => updateRoleDistribution('batsmen', value)}
-                    min={2}
-                    max={7}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-sm font-medium">Bowlers: {configuration.roleDistribution.bowlers}</Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.roleDistribution.bowlers]}
-                    onValueChange={([value]) => updateRoleDistribution('bowlers', value)}
-                    min={2}
-                    max={6}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-sm font-medium">All-Rounders: {configuration.roleDistribution.allRounders}</Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.roleDistribution.allRounders]}
-                    onValueChange={([value]) => updateRoleDistribution('allRounders', value)}
-                    min={1}
-                    max={5}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-sm font-medium">Wicket-Keepers: {configuration.roleDistribution.wicketKeepers}</Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.roleDistribution.wicketKeepers]}
-                    onValueChange={([value]) => updateRoleDistribution('wicketKeepers', value)}
-                    min={1}
-                    max={2}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-
-              <div className="p-3 bg-gray-50 rounded">
-                <div className="text-sm font-medium">Total Players: {getTotalPlayers()}</div>
-                <p className="text-xs text-gray-500">Must equal 11</p>
-                {getTotalPlayers() !== 11 && (
-                  <p className="text-xs text-red-500 mt-1">⚠ Adjust roles to total 11 players</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Team Split */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Team Split</CardTitle>
-              <CardDescription>Players from each team</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <Label className="text-sm font-medium">
-                  Team A: {configuration.teamSplit.teamA} | Team B: {configuration.teamSplit.teamB}
-                </Label>
-                <div className="mt-2">
-                  <Slider
-                    value={[configuration.teamSplit.teamA]}
-                    onValueChange={([value]) => updateTeamSplit(value)}
-                    min={3}
-                    max={8}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>3 from A, 8 from B</span>
-                  <span>8 from A, 3 from B</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 bg-blue-50 rounded border border-blue-200">
-                  <div className="text-sm font-medium text-blue-800">Team A</div>
-                  <div className="text-2xl font-bold text-blue-600">{configuration.teamSplit.teamA}</div>
-                </div>
-                <div className="p-3 bg-red-50 rounded border border-red-200">
-                  <div className="text-sm font-medium text-red-800">Team B</div>
-                  <div className="text-2xl font-bold text-red-600">{configuration.teamSplit.teamB}</div>
-                </div>
+                <Label htmlFor="pacers">Pacers</Label>
+                <Input
+                  id="pacers"
+                  type="number"
+                  min="0"
+                  max="5"
+                  value={config.pacers}
+                  onChange={(e) => handleConfigChange('pacers', parseInt(e.target.value) || 0)}
+                />
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-          <h3 className="font-semibold text-blue-800 mb-2">Configuration Preview:</h3>
-          <p className="text-sm text-blue-700">{generateSummary()}</p>
-        </div>
+        {/* Core Roles */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Core Roles</CardTitle>
+            <CardDescription>Define essential player roles</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="allRounders">All-Rounders</Label>
+                <Input
+                  id="allRounders"
+                  type="number"
+                  min="0"
+                  max="4"
+                  value={config.allRounders}
+                  onChange={(e) => handleConfigChange('allRounders', parseInt(e.target.value) || 0)}
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="wicketKeepers">Wicket Keepers</Label>
+                <Input
+                  id="wicketKeepers"
+                  type="number"
+                  min="1"
+                  max="2"
+                  value={config.wicketKeepers}
+                  onChange={(e) => handleConfigChange('wicketKeepers', parseInt(e.target.value) || 1)}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-        <div className="mt-6 flex justify-between items-center">
-          <Button variant="outline" onClick={() => window.history.back()}>
-            Back to Match
+        {/* Team Generation Settings */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Team Generation Settings</CardTitle>
+            <CardDescription>Configure team generation parameters</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="teamCount">Number of Teams</Label>
+              <Input
+                id="teamCount"
+                type="number"
+                min="1"
+                max="50"
+                value={config.teamCount}
+                onChange={(e) => handleConfigChange('teamCount', parseInt(e.target.value) || 15)}
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="diversity">Diversity Level</Label>
+              <select 
+                id="diversity"
+                value={config.diversityLevel}
+                onChange={(e) => handleConfigChange('diversityLevel', e.target.value as 'low' | 'medium' | 'high')}
+                className="w-full p-2 border rounded-md"
+              >
+                <option value="low">Low (10-15% difference)</option>
+                <option value="medium">Medium (20-30% difference)</option>
+                <option value="high">High (35-50% difference)</option>
+              </select>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="prioritizeForm"
+                checked={config.prioritizeForm}
+                onChange={(e) => handleConfigChange('prioritizeForm', e.target.checked)}
+              />
+              <Label htmlFor="prioritizeForm">Prioritize current form</Label>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="balanceCredits"
+                checked={config.balanceCredits}
+                onChange={(e) => handleConfigChange('balanceCredits', e.target.checked)}
+              />
+              <Label htmlFor="balanceCredits">Balance credit distribution</Label>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Team Composition Summary */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Team Composition Summary</CardTitle>
+            <CardDescription>Total role preferences must equal 11 players</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+              <div className="text-sm">
+                <span className="font-medium">Batting Positions:</span> {battingPositions}
+              </div>
+              <div className="text-sm">
+                <span className="font-medium">Bowling Types:</span> {bowlingTypes}
+              </div>
+              <div className="text-sm">
+                <span className="font-medium">Core Roles:</span> {coreRoles}
+              </div>
+            </div>
+            <div className={`flex items-center gap-2 p-3 rounded-lg ${
+              isConfigValid 
+                ? 'bg-green-50 border border-green-200' 
+                : 'bg-red-50 border border-red-200'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                isConfigValid ? 'bg-green-500' : 'bg-red-500'
+              }`}></div>
+              <span className={`font-medium ${
+                isConfigValid ? 'text-green-700' : 'text-red-700'
+              }`}>
+                Total: {totalRolePreferences}/11 {isConfigValid ? '✓' : '✗'}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="mt-6 flex justify-between">
+          <Button variant="outline" onClick={() => setConfig({
+            topOrderBatsmen: 3,
+            middleOrderBatsmen: 2,
+            lowerOrderBatsmen: 1,
+            spinners: 2,
+            pacers: 1,
+            wicketKeepers: 1,
+            allRounders: 1,
+            teamCount: 15,
+            prioritizeForm: true,
+            balanceCredits: true,
+            diversityLevel: 'medium'
+          })}>
+            Reset to Default
           </Button>
-          <Button 
-            onClick={handleSaveConfig}
-            disabled={getTotalPlayers() !== 11}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            Save Configuration
+          <Button onClick={handleSaveConfig} disabled={!isConfigValid}>
+            Continue to Summary
           </Button>
         </div>
       </div>
     );
   }
 
-  // Summary stage
-  return (
-    <div className="container mx-auto p-4">
-      <div className="mb-6">
-        <h2 className="text-xl font-bold mb-2">Role-Split Configuration Summary</h2>
-        <p className="text-gray-600 mb-4">
-          Review your role-based lineup configuration.
-        </p>
-      </div>
+  if (stage === 'summary') {
+    return (
+      <div className="container mx-auto p-4 max-w-4xl">
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold mb-2">Role-Split Configuration Summary</h2>
+          <p className="text-gray-600 mb-4">
+            Review your configuration and generate teams.
+          </p>
+        </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <Card>
+        <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Batting Order Composition</CardTitle>
+            <CardTitle>Configuration Overview</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="p-3 bg-green-50 rounded border border-green-200">
-                  <div className="text-sm font-medium text-green-800">Top Order</div>
-                  <div className="text-xl font-bold text-green-600">{configuration.battingOrder.topOrder}</div>
-                  <div className="text-xs text-green-600">Positions 1-3</div>
-                </div>
-                <div className="p-3 bg-yellow-50 rounded border border-yellow-200">
-                  <div className="text-sm font-medium text-yellow-800">Middle</div>
-                  <div className="text-xl font-bold text-yellow-600">{configuration.battingOrder.middleOrder}</div>
-                  <div className="text-xs text-yellow-600">Positions 4-6</div>
-                </div>
-                <div className="p-3 bg-red-50 rounded border border-red-200">
-                  <div className="text-sm font-medium text-red-800">Lower</div>
-                  <div className="text-xl font-bold text-red-600">{configuration.battingOrder.lowerOrder}</div>
-                  <div className="text-xs text-red-600">Positions 7-11</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Bowling Attack</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="p-3 bg-blue-50 rounded border border-blue-200">
-                  <div className="text-sm font-medium text-blue-800">Pacers</div>
-                  <div className="text-xl font-bold text-blue-600">{configuration.bowlingStyle.pacers}</div>
-                </div>
-                <div className="p-3 bg-purple-50 rounded border border-purple-200">
-                  <div className="text-sm font-medium text-purple-800">Spinners</div>
-                  <div className="text-xl font-bold text-purple-600">{configuration.bowlingStyle.spinners}</div>
-                </div>
-                <div className="p-3 bg-orange-50 rounded border border-orange-200">
-                  <div className="text-sm font-medium text-orange-800">Hybrid</div>
-                  <div className="text-xl font-bold text-orange-600">{configuration.bowlingStyle.hybrid}</div>
-                </div>
-              </div>
-              <div className="text-center">
-                <Badge variant="secondary">Total: {getTotalBowlers()} bowling options</Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Role Distribution</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium">Batsmen:</span>
-                <Badge variant="outline">{configuration.roleDistribution.batsmen}</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium">Bowlers:</span>
-                <Badge variant="outline">{configuration.roleDistribution.bowlers}</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium">All-Rounders:</span>
-                <Badge variant="outline">{configuration.roleDistribution.allRounders}</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium">Wicket-Keepers:</span>
-                <Badge variant="outline">{configuration.roleDistribution.wicketKeepers}</Badge>
-              </div>
-              <div className="pt-2 border-t">
-                <div className="flex justify-between items-center font-semibold">
-                  <span>Total:</span>
-                  <Badge>{getTotalPlayers()}</Badge>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Team Generation</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <Label>Number of Teams</Label>
-                <div className="flex items-center gap-2 mt-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setTeamCount(Math.max(1, teamCount - 1))}
-                  >
-                    -
-                  </Button>
-                  <span className="px-4 py-2 bg-gray-100 rounded">{teamCount}</span>
-                  <Button
-                    variant="outline"
-                    onClick={() => setTeamCount(Math.min(50, teamCount + 1))}
-                  >
-                    +
-                  </Button>
-                </div>
+                <h4 className="font-medium mb-2">Batting Order:</h4>
+                <p className="text-sm text-gray-600">Top Order: {config.topOrderBatsmen}</p>
+                <p className="text-sm text-gray-600">Middle Order: {config.middleOrderBatsmen}</p>
+                <p className="text-sm text-gray-600">Lower Order: {config.lowerOrderBatsmen}</p>
               </div>
-
               <div>
-                <Label className="text-sm font-medium">Team Split:</Label>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <div className="p-2 bg-blue-50 rounded text-center">
-                    <div className="text-sm font-medium">Team A: {configuration.teamSplit.teamA}</div>
-                  </div>
-                  <div className="p-2 bg-red-50 rounded text-center">
-                    <div className="text-sm font-medium">Team B: {configuration.teamSplit.teamB}</div>
-                  </div>
-                </div>
+                <h4 className="font-medium mb-2">Bowling Split:</h4>
+                <p className="text-sm text-gray-600">Spinners: {config.spinners}</p>
+                <p className="text-sm text-gray-600">Pacers: {config.pacers}</p>
+              </div>
+              <div>
+                <h4 className="font-medium mb-2">Core Roles:</h4>
+                <p className="text-sm text-gray-600">All-Rounders: {config.allRounders}</p>
+                <p className="text-sm text-gray-600">Wicket Keepers: {config.wicketKeepers}</p>
+              </div>
+              <div>
+                <h4 className="font-medium mb-2">Generation Settings:</h4>
+                <p className="text-sm text-gray-600">Teams: {config.teamCount}</p>
+                <p className="text-sm text-gray-600">Diversity: {config.diversityLevel}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-      </div>
 
-      <Card className="mb-6">
-        <CardContent className="pt-6">
-          <div className="p-4 bg-gray-50 rounded-lg">
-            <h4 className="font-semibold mb-2">Strategy Summary:</h4>
-            <p className="text-gray-800 italic">
-              &quot;{generateSummary()}&quot;
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <h4 className="font-semibold mb-2">AI Strategy Summary:</h4>
+              <p className="text-gray-800 italic">
+                "Generating {config.teamCount} teams with role-split configuration: {config.topOrderBatsmen} top-order, {config.middleOrderBatsmen} middle-order batsmen, {config.spinners} spinners, {config.pacers} pacers, optimized for {matchData?.match?.pitch_condition || 'unknown'} pitch conditions."
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
-      <div className="mt-6 flex justify-between items-center">
-        <Button variant="outline" onClick={() => setStage('configuration')}>
-          Back to Configuration
-        </Button>
-        <Button onClick={handleGenerateTeams} className="bg-blue-600 hover:bg-blue-700">
-          Generate {teamCount} Teams
-        </Button>
+        <div className="flex justify-between">
+          <Button variant="outline" onClick={() => setStage('configure')}>
+            Back to Configuration
+          </Button>
+          <Button onClick={handleGenerateTeams} className="bg-green-600 hover:bg-green-700">
+            Generate {config.teamCount} Teams
+          </Button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  return null;
 }
