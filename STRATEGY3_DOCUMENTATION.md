@@ -41,7 +41,7 @@ flowchart LR
   C --> D[POST /api/ai-analysis]
   D --> E[Receive AI Analysis]
   E --> F[Set Team Count]
-  F --> G[Generate Teams (onGenerate API Call)]
+  F --> G["Generate Teams (onGenerate API Call)"]
 ```
 **Diagram Explanation:**
 - Steps A→B to present conditions and collect predictions.
@@ -96,9 +96,9 @@ flowchart LR
 flowchart TD
   A[API Route Receives /generate] --> B[generateTeamsWithAIStrategy]
   B --> C[generateAIPlayerRecommendations]
-  C --> D[Loop teams 0…N-1]
+  C --> D["Loop teams 0...N-1"]
   D --> E[generateSingleTeam]
-  E --> F[Return AITeamAnalysis[]]
+  E --> F["Return AITeamAnalysis[]"]
 ```
 **Diagram Explanation:**
 - API route delegates to AI service.
