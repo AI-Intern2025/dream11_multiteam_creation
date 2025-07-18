@@ -32,7 +32,7 @@
 flowchart LR
   A[Configure Role-Split] --> B[Validate & Save Config]
   B --> C[Review Summary]
-  C --> D[Generate Teams (onGenerate)]
+  C --> D["Generate Teams (onGenerate)"]
 ```  
 **Diagram Explanation:**
 - A→B: user defines exact role ratios and validation passes.
@@ -149,7 +149,7 @@ config = {
   topOrderBatsmen: 3, middleOrderBatsmen: 3, lowerOrderBatsmen: 1,
   spinners: 2, pacers: 1, wicketKeepers: 1, allRounders: 1,
   teamCount: 2, diversityLevel: 'medium'
-};
+ };
 ```
 
 **Team 0**:
