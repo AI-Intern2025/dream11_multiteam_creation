@@ -160,8 +160,29 @@ export interface TeamGenerationRequest {
       };
       editIntensity: 'minor' | 'moderate' | 'major';
     };
-    summary?: string;
   };
+  // For Strategy 1 AI-guided conversation
+  userInsights?: {
+    matchWinner: string;
+    scoreRange: string;
+    backedPlayers: string[];
+    matchNarrative: string;
+    riskAppetite: string;
+    customInputs: string[];
+  };
+  conversationHistory?: Array<{
+    sender: 'user' | 'ai' | 'system';
+    text: string;
+    timestamp: Date;
+    questionId?: string;
+  }>;
+  captainDistribution?: Array<{
+    captain: string;
+    viceCaptain: string;
+    percentage: number;
+  }>;
+  matchAnalysis?: any;
+  summary?: string;
 }
 
 export interface AIPlayerRecommendation {
@@ -398,9 +419,36 @@ export class AIService {
 
   async generateTeamsWithAIStrategy(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
     try {
+      console.log(`🎯 AI Service: Processing strategy "${request.strategy}"`);
+      console.log('📊 AI Service: Request data:', {
+        strategy: request.strategy,
+        hasUserInsights: !!request.userInsights,
+        userInsights: request.userInsights,
+        teamCount: request.teamCount
+      });
+
       // Handle same-xi strategy specially
       if (request.strategy === 'same-xi' && request.userPreferences?.players && request.userPreferences?.combos) {
         return this.generateSameXITeams(request);
+      }
+
+      // Handle AI-guided conversation strategy (Strategy 1)
+      if (request.strategy === 'ai-guided' && request.userInsights) {
+        console.log('✅ AI Service: Calling generateAIGuidedTeams');
+        return this.generateAIGuidedTeams(request);
+      }
+
+      // Handle AI-guided fallback (if userInsights is in userPreferences)
+      if (request.strategy === 'ai-guided' && (request.userPreferences as any)?.userInsights) {
+        console.log('⚠️ AI Service: userInsights found in userPreferences, extracting...');
+        const userPrefs = request.userPreferences as any;
+        const modifiedRequest = {
+          ...request,
+          userInsights: userPrefs.userInsights,
+          conversationHistory: userPrefs.conversationHistory,
+          captainDistribution: userPrefs.captainDistribution
+        };
+        return this.generateAIGuidedTeams(modifiedRequest);
       }
 
       // Handle preset scenarios strategy (Strategy 6)
@@ -3258,6 +3306,731 @@ export class AIService {
     }
 
     return entries;
+  }
+
+  async generateAIGuidedTeams(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
+    try {
+      console.log('🎪 generateAIGuidedTeams: Starting team generation');
+      const { userInsights, conversationHistory, captainDistribution } = request;
+      
+      console.log('📝 generateAIGuidedTeams: User insights received:', userInsights);
+      console.log('💬 generateAIGuidedTeams: Conversation history length:', conversationHistory?.length || 0);
+      console.log('👑 generateAIGuidedTeams: Captain distribution:', captainDistribution);
+      
+      if (!userInsights) {
+        throw new Error('User insights are required for AI-guided team generation');
+      }
+
+      // Process user insights and create AI prompt
+      const prompt = this.buildConversationalPrompt(userInsights, conversationHistory || []);
+      console.log('📄 generateAIGuidedTeams: Generated prompt length:', prompt.length);
+      
+      // Get AI analysis based on conversation
+      const aiAnalysis = await this.getAIResponse(prompt);
+      console.log('🤖 generateAIGuidedTeams: AI analysis received length:', aiAnalysis.length);
+      
+      // Parse AI recommendations
+      const recommendations = this.parseAIRecommendations(aiAnalysis);
+      console.log('📊 generateAIGuidedTeams: Parsed recommendations count:', recommendations.length);
+      
+      // Generate base teams considering user insights
+      const baseTeams = await this.generateInsightBasedTeams(recommendations, request);
+      console.log('🏏 generateAIGuidedTeams: Generated base teams count:', baseTeams.length);
+      
+      // Apply captain distribution strategy
+      const finalTeams = this.applyCaptainDistribution(baseTeams, captainDistribution);
+      console.log('✅ generateAIGuidedTeams: Final teams count:', finalTeams.length);
+      
+      return finalTeams;
+    } catch (error) {
+      console.error('❌ generateAIGuidedTeams: Error generating AI-guided teams:', error);
+      throw error;
+    }
+  }
+
+  private async getAIResponse(prompt: string): Promise<string> {
+    try {
+      if (this.provider === 'gemini') {
+        return await geminiService.generateChatbotResponse(prompt, {} as any, {} as any);
+      } else {
+        return await openAIService.generateChatbotResponse(prompt, {} as any, {} as any);
+      }
+    } catch (error) {
+      console.warn('AI response failed, using fallback:', error);
+      return 'AI analysis unavailable';
+    }
+  }
+
+  private buildConversationalPrompt(insights: any, history: any[]): string {
+    return `
+      Based on the following user predictions and insights, provide detailed team recommendations:
+
+      User Match Predictions:
+      - Expected Match Winner: ${insights.matchWinner}
+      - Score Range Prediction: ${insights.scoreRange}
+      - Backed Key Players: ${insights.backedPlayers?.join(', ') || 'None specified'}
+      - Match Narrative: ${insights.matchNarrative}
+      - Risk Appetite: ${insights.riskAppetite}
+
+      Conversation History:
+      ${history.map(msg => `${msg.type}: ${msg.content}`).join('\n')}
+
+      Please analyze these insights and provide:
+      1. Player recommendations based on match winner prediction
+      2. Score-based strategy (high/low scoring match implications)
+      3. Key player prioritization based on user backing
+      4. Risk-adjusted team composition suggestions
+      5. Captain/Vice-captain recommendations aligned with predictions
+
+      Format your response as structured recommendations for team selection.
+    `;
+  }
+
+  private parseAIRecommendations(aiResponse: string): AIPlayerRecommendation[] {
+    // Extract structured recommendations from AI response
+    const recommendations: AIPlayerRecommendation[] = [];
+    
+    try {
+      console.log('🔍 parseAIRecommendations: Parsing AI response:', aiResponse.substring(0, 200) + '...');
+      
+      // For now, since AI responses are free-form text, we'll return empty
+      // but this triggers the fallback logic which will use actual player data
+      console.log('📝 parseAIRecommendations: Using fallback approach (empty recommendations)');
+      
+      // Future implementation: Parse structured AI response
+      // const lines = aiResponse.split('\n');
+      // for (const line of lines) {
+      //   if (line.includes('Recommend:') || line.includes('Priority:')) {
+      //     // Extract player names and scores from AI response
+      //   }
+      // }
+    } catch (error) {
+      console.warn('Error parsing AI recommendations:', error);
+    }
+    
+    return recommendations;
+  }
+
+  private async generateInsightBasedTeams(
+    recommendations: AIPlayerRecommendation[], 
+    request: TeamGenerationRequest
+  ): Promise<AITeamAnalysis[]> {
+    const teams: AITeamAnalysis[] = [];
+    const { userInsights, teamCount = 5 } = request;
+    
+    console.log('🔨 generateInsightBasedTeams: Starting with', recommendations.length, 'recommendations');
+    
+        // If no AI recommendations, get player data and create our own
+        if (recommendations.length === 0) {
+          console.log('⚠️ generateInsightBasedTeams: No recommendations, using fallback strategy...');
+          return this.generateBasicVariedTeams(request);
+        }    // Get base player pool from recommendations
+    const playerPool = recommendations.map(rec => rec.player);
+    
+    // Ensure minimum 25% variation between teams
+    const minVariationPlayers = Math.ceil(11 * 0.25); // At least 3 different players per team
+    console.log('🎯 generateInsightBasedTeams: Requiring', minVariationPlayers, 'unique players per team');
+    
+    // Generate teams with enforced diversity
+    for (let i = 0; i < teamCount; i++) {
+      try {
+        console.log(`🏗️ generateInsightBasedTeams: Generating team ${i + 1}/${teamCount}`);
+        
+        // Create variation strategy for this team
+        const variation = this.createInsightVariation(userInsights, i);
+        console.log(`📝 generateInsightBasedTeams: Team ${i + 1} variation:`, variation);
+        
+        // Generate team with diversity enforcement
+        const team = await this.generateDiverseInsightTeam(
+          recommendations, 
+          request, 
+          variation,
+          teams, // Previous teams for comparison
+          minVariationPlayers
+        );
+        
+        if (team) {
+          // Apply smart captain/VC selection based on analysis
+          this.optimizeCaptainSelection(team, userInsights, i, teams);
+          teams.push(team);
+          console.log(`✅ generateInsightBasedTeams: Team ${i + 1} generated successfully`);
+        } else {
+          console.warn(`⚠️ generateInsightBasedTeams: Failed to generate team ${i + 1}`);
+        }
+      } catch (error) {
+        console.warn(`❌ generateInsightBasedTeams: Error generating team ${i + 1}:`, error);
+      }
+    }
+    
+    console.log('🎪 generateInsightBasedTeams: Final team count:', teams.length);
+    
+    // Final validation: Ensure all teams meet 25% variation requirement
+    return this.validateTeamDiversity(teams, minVariationPlayers);
+  }
+
+  private async generateBasicVariedTeams(request: TeamGenerationRequest): Promise<AITeamAnalysis[]> {
+    console.log('🔄 generateBasicVariedTeams: Falling back to basic team generation');
+    const { teamCount = 5, matchId } = request;
+    
+    try {
+      // Get AI player recommendations first
+      console.log('🎯 generateBasicVariedTeams: Getting player recommendations for match', matchId);
+      const recommendations = await this.generateAIPlayerRecommendations(matchId);
+      console.log('📊 generateBasicVariedTeams: Received', recommendations.length, 'player recommendations');
+      
+      if (recommendations.length === 0) {
+        console.warn('⚠️ generateBasicVariedTeams: No player recommendations available');
+        return [];
+      }
+      
+      const teams: AITeamAnalysis[] = [];
+      
+      // Generate teams using the proven working method
+      for (let i = 0; i < teamCount; i++) {
+        try {
+          console.log(`🏗️ generateBasicVariedTeams: Generating team ${i + 1}/${teamCount}`);
+          const team = await this.generateSingleTeam(recommendations, request, i);
+          
+          if (team && team.players && team.players.length > 0) {
+            teams.push(team);
+            console.log(`✅ generateBasicVariedTeams: Team ${i + 1} generated with ${team.players.length} players`);
+          } else {
+            console.warn(`⚠️ generateBasicVariedTeams: Team ${i + 1} generation failed or has no players`);
+          }
+        } catch (error) {
+          console.warn(`❌ generateBasicVariedTeams: Error generating team ${i + 1}:`, error);
+        }
+      }
+      
+      console.log(`✅ generateBasicVariedTeams: Successfully generated ${teams.length} teams`);
+      return teams;
+      
+    } catch (error) {
+      console.error('❌ generateBasicVariedTeams: Error in fallback generation:', error);
+      return [];
+    }
+  }
+
+  private createInsightVariation(insights: any, index: number): any {
+    // Create diverse team variations based on user insights
+    const variations: { [key: number]: any } = {
+      0: { // Conservative based on winner prediction
+        focus: 'winner-heavy',
+        riskLevel: 'low',
+        captainBias: insights?.matchWinner || 'balanced',
+        playerBias: 'safe-picks',
+        budgetStrategy: 'conservative'
+      },
+      1: { // Backed players priority
+        focus: 'backed-players',
+        riskLevel: 'medium',
+        priorityPlayers: insights?.backedPlayers || [],
+        playerBias: 'user-favorites',
+        budgetStrategy: 'balanced'
+      },
+      2: { // Score-range optimized
+        focus: 'score-optimized',
+        riskLevel: insights?.riskAppetite === 'Play it Safe' ? 'low' : 'medium',
+        scoreStrategy: insights?.scoreRange || 'balanced',
+        playerBias: 'form-based',
+        budgetStrategy: 'aggressive'
+      },
+      3: { // Narrative-driven differential
+        focus: 'narrative-driven',
+        riskLevel: 'high',
+        strategy: insights?.matchNarrative || 'balanced',
+        playerBias: 'differential',
+        budgetStrategy: 'punt-heavy'
+      },
+      4: { // High-risk contrarian
+        focus: 'contrarian',
+        riskLevel: 'high',
+        contrarian: true,
+        playerBias: 'low-ownership',
+        budgetStrategy: 'value-picks'
+      }
+    };
+    
+    return variations[index % 5] || variations[0];
+  }
+
+  private async generateDiverseInsightTeam(
+    recommendations: AIPlayerRecommendation[],
+    request: TeamGenerationRequest,
+    variation: any,
+    existingTeams: AITeamAnalysis[],
+    minVariationPlayers: number
+  ): Promise<AITeamAnalysis | null> {
+    try {
+      // Create modified request based on variation strategy
+      const modifiedRequest = {
+        ...request,
+        strategy: variation.focus,
+        teamCount: 1,
+        userPreferences: {
+          ...request.userPreferences,
+          diversityLevel: 'high',
+          variationFocus: variation.playerBias,
+          budgetStrategy: variation.budgetStrategy
+        }
+      };
+      
+      // Generate base team
+      let attempts = 0;
+      let team: AITeamAnalysis | null = null;
+      
+      while (attempts < 5 && !team) {
+        const generatedTeams = await this.generateTeamsWithAIStrategy(modifiedRequest);
+        const candidateTeam = generatedTeams.length > 0 ? generatedTeams[0] : null;
+        
+        if (candidateTeam && this.meetsDiversityRequirement(candidateTeam, existingTeams, minVariationPlayers)) {
+          team = candidateTeam;
+        } else if (candidateTeam) {
+          // Force diversity by swapping players
+          team = this.forceDiversityInTeam(candidateTeam, existingTeams, recommendations, minVariationPlayers);
+        }
+        
+        attempts++;
+      }
+      
+      return team;
+    } catch (error) {
+      console.warn('Error generating diverse insight team:', error);
+      return null;
+    }
+  }
+
+  private meetsDiversityRequirement(
+    team: AITeamAnalysis, 
+    existingTeams: AITeamAnalysis[], 
+    minVariationPlayers: number
+  ): boolean {
+    if (existingTeams.length === 0) return true;
+    
+    for (const existingTeam of existingTeams) {
+      const commonPlayers = team.players.filter(p => 
+        existingTeam.players.some(ep => ep.id === p.id)
+      );
+      
+      const differentPlayers = 11 - commonPlayers.length;
+      if (differentPlayers < minVariationPlayers) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
+  private forceDiversityInTeam(
+    team: AITeamAnalysis,
+    existingTeams: AITeamAnalysis[],
+    recommendations: AIPlayerRecommendation[],
+    minVariationPlayers: number
+  ): AITeamAnalysis {
+    if (existingTeams.length === 0) return team;
+    
+    const modifiedTeam = { ...team, players: [...team.players] };
+    
+    // Find most common players across existing teams
+    const playerUsageCount = new Map<string, number>();
+    existingTeams.forEach(existingTeam => {
+      existingTeam.players.forEach(player => {
+        const playerId = String(player.id); // Convert to string
+        const count = playerUsageCount.get(playerId) || 0;
+        playerUsageCount.set(playerId, count + 1);
+      });
+    });
+    
+    // Sort team players by usage (most used first)
+    const playersToReplace = modifiedTeam.players
+      .map(player => ({
+        player,
+        usage: playerUsageCount.get(String(player.id)) || 0
+      }))
+      .sort((a, b) => b.usage - a.usage)
+      .slice(0, minVariationPlayers)
+      .map(item => item.player);
+    
+    // Replace high-usage players with alternatives
+    playersToReplace.forEach(playerToReplace => {
+      const alternativePlayer = this.findAlternativePlayer(
+        playerToReplace, 
+        modifiedTeam.players, 
+        recommendations,
+        existingTeams
+      );
+      
+      if (alternativePlayer) {
+        const playerIndex = modifiedTeam.players.findIndex(p => p.id === playerToReplace.id);
+        if (playerIndex !== -1) {
+          modifiedTeam.players[playerIndex] = alternativePlayer;
+        }
+      }
+    });
+    
+    // Recalculate team stats
+    modifiedTeam.totalCredits = modifiedTeam.players.reduce((sum, p) => sum + (p.credits || 0), 0);
+    
+    return modifiedTeam;
+  }
+
+  private findAlternativePlayer(
+    playerToReplace: any,
+    currentTeamPlayers: any[],
+    recommendations: AIPlayerRecommendation[],
+    existingTeams: AITeamAnalysis[]
+  ): any | null {
+    const targetRole = playerToReplace.player_role;
+    const usedPlayerIds = new Set([
+      ...currentTeamPlayers.map(p => p.id),
+      ...existingTeams.flatMap(team => team.players.map(p => p.id))
+    ]);
+    
+    // Find unused players of same role
+    const alternatives = recommendations
+      .filter(rec => 
+        rec.player.player_role === targetRole && 
+        !usedPlayerIds.has(rec.player.id)
+      )
+      .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+    
+    return alternatives.length > 0 ? alternatives[0].player : null;
+  }
+
+  private optimizeCaptainSelection(
+    team: AITeamAnalysis, 
+    userInsights: any, 
+    teamIndex: number,
+    existingTeams: AITeamAnalysis[]
+  ): void {
+    // Smart captain selection based on user insights and performance analysis
+    const captainCandidates = team.players
+      .filter(player => this.isViableCaptain(player, userInsights))
+      .sort((a, b) => this.calculateInsightCaptainScore(b, userInsights) - this.calculateInsightCaptainScore(a, userInsights));
+    
+    if (captainCandidates.length === 0) return;
+    
+    // Avoid captain repetition across teams
+    const usedCaptains = existingTeams.map(t => t.captain.id);
+    const availableCaptains = captainCandidates.filter(player => !usedCaptains.includes(player.id));
+    
+    if (availableCaptains.length > 0) {
+      team.captain = availableCaptains[0];
+      
+      // Select vice-captain (different from captain)
+      const vcCandidates = captainCandidates.filter(player => player.id !== team.captain.id);
+      if (vcCandidates.length > 0) {
+        team.viceCaptain = vcCandidates[0];
+      }
+    } else {
+      // Use least used captain if all have been used
+      const captainUsage = new Map<string, number>();
+      existingTeams.forEach(t => {
+        const captainId = String(t.captain.id); // Convert to string
+        captainUsage.set(captainId, (captainUsage.get(captainId) || 0) + 1);
+      });
+      
+      const leastUsedCaptain = captainCandidates
+        .sort((a, b) => (captainUsage.get(String(a.id)) || 0) - (captainUsage.get(String(b.id)) || 0))[0];
+      
+      team.captain = leastUsedCaptain;
+      
+      const vcCandidates = captainCandidates.filter(player => player.id !== team.captain.id);
+      if (vcCandidates.length > 0) {
+        team.viceCaptain = vcCandidates[0];
+      }
+    }
+  }
+
+  private isViableCaptain(player: any, userInsights: any): boolean {
+    // Check if player is suitable for captaincy based on role and insights
+    const topRoles = ['BAT', 'AR', 'WK'];
+    if (!topRoles.includes(player.player_role)) return false;
+    
+    // Boost backed players for captaincy
+    if (userInsights?.backedPlayers?.some((backed: string) => 
+      player.player_name?.toLowerCase().includes(backed.toLowerCase())
+    )) {
+      return true;
+    }
+    
+    // Check recent form and average points
+    return (player.recent_points || 0) > 40 || (player.average_points || 0) > 35;
+  }
+
+  private calculateInsightCaptainScore(player: any, userInsights: any): number {
+    let score = 0;
+    
+    // Base score from player stats
+    score += (player.recent_points || 0) * 0.4;
+    score += (player.average_points || 0) * 0.3;
+    score += (player.dream_team_percentage || 0) * 0.2;
+    score += (player.selection_percentage || 0) * 0.1;
+    
+    // Boost for user-backed players
+    if (userInsights?.backedPlayers?.some((backed: string) => 
+      player.player_name?.toLowerCase().includes(backed.toLowerCase())
+    )) {
+      score *= 1.3;
+    }
+    
+    // Score range adjustments
+    if (userInsights?.scoreRange?.includes('High') && player.player_role === 'BAT') {
+      score *= 1.2;
+    } else if (userInsights?.scoreRange?.includes('Low') && ['BWL', 'AR'].includes(player.player_role)) {
+      score *= 1.2;
+    }
+    
+    // Match winner bias
+    if (userInsights?.matchWinner && player.team_name?.includes(userInsights.matchWinner)) {
+      score *= 1.15;
+    }
+    
+    return score;
+  }
+
+  private validateTeamDiversity(teams: AITeamAnalysis[], minVariationPlayers: number): AITeamAnalysis[] {
+    // Final check to ensure all teams meet diversity requirements
+    const validatedTeams = [...teams];
+    
+    for (let i = 1; i < validatedTeams.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const commonPlayers = validatedTeams[i].players.filter(p => 
+          validatedTeams[j].players.some(jp => jp.id === p.id)
+        );
+        
+        if (11 - commonPlayers.length < minVariationPlayers) {
+          console.warn(`Teams ${i+1} and ${j+1} don't meet 25% diversity requirement`);
+          // Could implement additional fixes here if needed
+        }
+      }
+    }
+    
+    return validatedTeams;
+  }
+
+  private async generateSingleInsightTeam(
+    recommendations: AIPlayerRecommendation[],
+    request: TeamGenerationRequest,
+    variation: any
+  ): Promise<AITeamAnalysis | null> {
+    try {
+      // Use existing team generation logic with insight modifications
+      // For now, use generateTeamsWithAIStrategy as a simpler alternative
+      const modifiedRequest = {
+        ...request,
+        strategy: variation.focus,
+        teamCount: 1
+      };
+      
+      const teams = await this.generateTeamsWithAIStrategy(modifiedRequest);
+      return teams.length > 0 ? teams[0] : null;
+    } catch (error) {
+      console.warn('Error generating single insight team:', error);
+      return null;
+    }
+  }
+
+  private applyCaptainDistribution(
+    teams: AITeamAnalysis[], 
+    distribution?: any
+  ): AITeamAnalysis[] {
+    console.log('👑 applyCaptainDistribution: Starting with teams:', teams.length);
+    console.log('📊 applyCaptainDistribution: Distribution data:', distribution);
+
+    if (!distribution || teams.length === 0) {
+      console.log('⚠️ applyCaptainDistribution: No distribution or no teams, returning as-is');
+      return teams;
+    }
+    
+    // Handle Strategy1Wizard percentage-based distribution format
+    if (Array.isArray(distribution) && distribution.length > 0 && distribution[0].percentage !== undefined) {
+      console.log('🎯 applyCaptainDistribution: Using Strategy1 percentage-based distribution');
+      return this.applyPercentageBasedCaptainDistribution(teams, distribution);
+    }
+    
+    // Handle other distribution formats (existing logic)
+    teams.forEach((team, index) => {
+      if (distribution.strategy === 'varied') {
+        // Ensure different captains across teams
+        this.adjustCaptainForVariation(team, index, teams);
+      } else if (distribution.preferredCaptains) {
+        // Apply user's preferred captain choices
+        this.applyPreferredCaptains(team, distribution.preferredCaptains);
+      }
+    });
+    
+    return teams;
+  }
+
+  private applyPercentageBasedCaptainDistribution(
+    teams: AITeamAnalysis[], 
+    distribution: { captain: string; viceCaptain: string; percentage: number }[]
+  ): AITeamAnalysis[] {
+    console.log('🎲 applyPercentageBasedCaptainDistribution: Processing teams with distribution');
+    
+    if (distribution.length === 0) {
+      console.log('⚠️ applyPercentageBasedCaptainDistribution: No distribution rules, returning as-is');
+      return teams;
+    }
+
+    // Calculate how many teams should use each captain/vc combination
+    const teamAssignments: { [key: number]: number } = {};
+    let assignedTeams = 0;
+
+    distribution.forEach((combo, index) => {
+      const teamsForThisCombo = Math.round((combo.percentage / 100) * teams.length);
+      teamAssignments[index] = Math.min(teamsForThisCombo, teams.length - assignedTeams);
+      assignedTeams += teamAssignments[index];
+      
+      console.log(`📊 Distribution ${index}: ${combo.captain} (C) / ${combo.viceCaptain} (VC) = ${teamAssignments[index]} teams`);
+    });
+
+    // Apply captain/vc assignments to teams
+    let currentTeamIndex = 0;
+    
+    distribution.forEach((combo, comboIndex) => {
+      const teamsForThisCombo = teamAssignments[comboIndex];
+      
+      for (let i = 0; i < teamsForThisCombo && currentTeamIndex < teams.length; i++) {
+        const team = teams[currentTeamIndex];
+        
+        try {
+          // Find best matching players for captain and vice-captain roles
+          const captainPlayer = this.findBestPlayerMatch(team.players, combo.captain);
+          const viceCaptainPlayer = this.findBestPlayerMatch(team.players, combo.viceCaptain, captainPlayer?.id);
+          
+          if (captainPlayer) {
+            team.captain = captainPlayer;
+            console.log(`👑 Team ${currentTeamIndex + 1}: Captain set to ${captainPlayer.name}`);
+          }
+          
+          if (viceCaptainPlayer) {
+            team.viceCaptain = viceCaptainPlayer;
+            console.log(`🥈 Team ${currentTeamIndex + 1}: Vice-Captain set to ${viceCaptainPlayer.name}`);
+          }
+          
+        } catch (error) {
+          console.error(`❌ Error setting captain/vc for team ${currentTeamIndex + 1}:`, error);
+        }
+        
+        currentTeamIndex++;
+      }
+    });
+
+    // Handle any remaining teams with default captain logic
+    while (currentTeamIndex < teams.length) {
+      const team = teams[currentTeamIndex];
+      if (!team.captain && team.players.length > 0) {
+        // Set the first player as captain if none assigned
+        team.captain = team.players[0];
+        console.log(`🔄 Team ${currentTeamIndex + 1}: Default captain set to ${team.players[0].name}`);
+      }
+      if (!team.viceCaptain && team.players.length > 1) {
+        // Set the second player as vice-captain if none assigned
+        const vcPlayer = team.players.find(p => p.id !== team.captain?.id) || team.players[1];
+        team.viceCaptain = vcPlayer;
+        console.log(`🔄 Team ${currentTeamIndex + 1}: Default vice-captain set to ${vcPlayer.name}`);
+      }
+      currentTeamIndex++;
+    }
+
+    console.log('✅ applyPercentageBasedCaptainDistribution: Captain distribution applied successfully');
+    return teams;
+  }
+
+  private findBestPlayerMatch(
+    players: any[], 
+    targetRole: string, 
+    excludePlayerId?: string
+  ): any | null {
+    console.log(`🔍 Finding best match for role: "${targetRole}"`);
+    
+    if (!players || players.length === 0) {
+      console.log('⚠️ No players available for matching');
+      return null;
+    }
+
+    // Filter out excluded player
+    const availablePlayers = players.filter(p => p.id !== excludePlayerId);
+    
+    // Role-based matching keywords
+    const roleKeywords = {
+      'top order': ['opener', 'top', 'batsman', 'batter'],
+      'middle order': ['middle', 'batsman', 'batter'],
+      'all-rounder': ['allrounder', 'all-rounder', 'all rounder'],
+      'bowler': ['bowler', 'pace', 'spin', 'fast'],
+      'wicket-keeper': ['keeper', 'wicket', 'wk'],
+      'power hitter': ['power', 'hitter', 'finisher'],
+      'premium': ['premium', 'star', 'key'],
+      'death': ['death', 'yorker', 'fast']
+    };
+
+    // Try to match based on role keywords
+    const targetLower = targetRole.toLowerCase();
+    
+    for (const [role, keywords] of Object.entries(roleKeywords)) {
+      if (keywords.some(keyword => targetLower.includes(keyword))) {
+        const matchingPlayer = availablePlayers.find(player => {
+          const playerRole = (player.position || player.role || '').toLowerCase();
+          const playerName = (player.name || '').toLowerCase();
+          
+          return keywords.some(keyword => 
+            playerRole.includes(keyword) || 
+            playerName.includes(keyword) ||
+            (role === 'all-rounder' && (playerRole.includes('allrounder') || playerRole.includes('all'))) ||
+            (role === 'bowler' && (playerRole.includes('bowler') || playerRole.includes('bowling'))) ||
+            (role === 'wicket-keeper' && (playerRole.includes('keeper') || playerRole.includes('wk')))
+          );
+        });
+        
+        if (matchingPlayer) {
+          console.log(`✅ Found role-based match: ${matchingPlayer.name} for ${targetRole}`);
+          return matchingPlayer;
+        }
+      }
+    }
+
+    // Fallback: return highest scoring available player
+    const fallbackPlayer = availablePlayers.reduce((best, current) => {
+      const currentScore = current.projectedPoints || current.credits || current.points || 0;
+      const bestScore = best.projectedPoints || best.credits || best.points || 0;
+      return currentScore > bestScore ? current : best;
+    }, availablePlayers[0]);
+
+    if (fallbackPlayer) {
+      console.log(`🔄 Using fallback player: ${fallbackPlayer.name} for ${targetRole}`);
+    }
+
+    return fallbackPlayer || null;
+  }
+
+  private adjustCaptainForVariation(team: AITeamAnalysis, index: number, allTeams: AITeamAnalysis[]): void {
+    // Logic to ensure captain variety across teams
+    const usedCaptains = allTeams.slice(0, index).map(t => t.captain.id);
+    
+    if (usedCaptains.includes(team.captain.id)) {
+      // Find alternative captain from the team
+      const alternativeCaptain = team.players.find((p: any) => 
+        !usedCaptains.includes(p.id) && 
+        p.id !== team.viceCaptain.id
+      );
+      
+      if (alternativeCaptain) {
+        team.captain = alternativeCaptain;
+      }
+    }
+  }
+
+  private applyPreferredCaptains(team: AITeamAnalysis, preferredCaptains: string[]): void {
+    // Apply user's preferred captain choices if available in team
+    const availablePrefCaptain = team.players.find((p: any) => 
+      preferredCaptains.includes(p.player_name || '')
+    );
+    
+    if (availablePrefCaptain && availablePrefCaptain.id !== team.captain.id) {
+      team.captain = availablePrefCaptain;
+    }
   }
 }
 

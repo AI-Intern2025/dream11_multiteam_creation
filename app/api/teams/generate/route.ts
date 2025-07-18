@@ -77,12 +77,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`🔍 Generating teams for match ${matchId} with strategy: ${strategy}`);
+    console.log('📋 User Preferences:', JSON.stringify(userPreferences, null, 2));
+    console.log('🎯 Team Count:', parsedTeamCount);
+
+    // Special debugging for ai-guided strategy
+    if (strategy === 'ai-guided') {
+      console.log('🎭 AI-GUIDED STRATEGY DEBUG:');
+      console.log('  ✅ Strategy matches ai-guided');
+      console.log('  📝 userInsights:', userPreferences?.userInsights);
+      console.log('  💬 conversationHistory length:', userPreferences?.conversationHistory?.length);
+      console.log('  👑 captainDistribution:', userPreferences?.captainDistribution);
+      console.log('  📊 matchAnalysis:', !!userPreferences?.matchAnalysis);
+      console.log('  🏏 teamNames:', userPreferences?.teamNames);
+    }
+
     // Use enhanced AI service for team generation
     const teams = await aiService.generateTeamsWithAIStrategy({
       matchId: parseInt(matchId),
       strategy,
       teamCount: parsedTeamCount,
-      userPreferences
+      userPreferences,
+      // For ai-guided strategy, ensure userInsights are passed at top level
+      ...(strategy === 'ai-guided' && userPreferences ? {
+        userInsights: userPreferences.userInsights,
+        conversationHistory: userPreferences.conversationHistory,
+        captainDistribution: userPreferences.captainDistribution,
+        matchAnalysis: userPreferences.matchAnalysis,
+        teamNames: userPreferences.teamNames
+      } : {})
     });
 
     if (!teams || teams.length === 0) {
