@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authService } from '@/lib/auth';
 
 // Import the dummy data script
-import { insertDummyData } from '@/scripts/insert-dummy-data';
+// import dummy data script dynamically below to avoid build-time execution
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +30,8 @@ export async function POST(request: NextRequest) {
     
     console.log('🚀 Starting dummy data insertion...');
     
-    // Run the dummy data insertion script
+    // Dynamically import and run the dummy data insertion script
+    const { insertDummyData } = await import('@/scripts/insert-dummy-data');
     const result = await insertDummyData();
 
     return NextResponse.json({
