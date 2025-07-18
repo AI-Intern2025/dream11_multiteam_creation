@@ -43,7 +43,7 @@ flowchart LR
   B --> C[Save Plan & Set Captains]
   C --> D[Order Captain Priority]
   D --> E[Review & Set Team Count]
-  E --> F[Generate Teams (onGenerate)]
+  E --> F["Generate Teams (onGenerate)"]
 ```  
 **Diagram Explanation:**
 - A→B: categorize into core/hedge/differential.
@@ -153,10 +153,10 @@ flowchart LR
 flowchart TD
   A[API receives core-hedge request] --> B[generateTeamsWithAIStrategy]
   B --> C{strategy == 'core-hedge'}
-  C --> D[generateCoreHedgeTeam(i=0)]
-  C --> E[generateCoreHedgeTeam(i=1)]
-  C --> F[...repeat for each team]
-  D --> G[Return AITeamAnalysis[]]
+  C --> D["generateCoreHedgeTeam(i=0)"]
+  C --> E["generateCoreHedgeTeam(i=1)"]
+  C --> F["repeat for each team"]
+  D --> G["Return AITeamAnalysis[]"]
 ```  
 **Diagram Explanation:**
 - The API handler routes to `generateCoreHedgeTeam` for each team index.
