@@ -37,8 +37,7 @@
 flowchart LR
   A[Select Base Team] --> B[Define Rules]
   B --> C[Review Summary]
-- C --> D[Generate Teams]
-+ C --> D["Generate Teams"]
+  C --> D["Generate Teams"]
 ```  
 **Diagram Explanation:**
 - A→B: user picks 11 players.
