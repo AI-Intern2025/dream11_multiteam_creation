@@ -30,6 +30,25 @@
      ```
    - The API route logs and extracts `userPreferences` into top-level parameters for `aiService.generateTeamsWithAIStrategy(...)`.
 
+## 2.3 Frontend Workflow Diagram
+
+```mermaid
+flowchart LR
+  A[User Opens Chat UI] --> B[Answer Q1: Winner Prediction]
+  B --> C[Answer Q2: Score Range]
+  C --> D[Answer Q3: Backed Players]
+  D --> E[Answer Q4: Match Narrative]
+  E --> F[Answer Q5: Risk Appetite]
+  F --> G[Collect UserInsights & conversationHistory]
+  G --> H[Click "Generate Teams"]
+  H --> I[POST /api/teams/generate]
+```
+
+**Diagram Explanation:**
+- The user interacts step-by-step with the chat UI (A → F).
+- Insights and full chat history are gathered (G).
+- A single button triggers the API call (H → I), passing structured preferences.
+
 ## 3. Backend Logic
 
 ### 3.1 API Route
@@ -112,6 +131,26 @@
 9. **findBestPlayerMatch(players, targetRole)**
    - Uses keyword map to match `targetRole` against `player.position` or `player.name`.
    - If no match: selects highest `projectedPoints` or `credits`.
+
+## 3.3 Backend Workflow Diagram
+
+```mermaid
+flowchart TD
+  A[API Route Receives Request] --> B[generateTeamsWithAIStrategy]
+  B --> C{strategy == 'ai-guided'}
+  C -->|yes| D[generateAIGuidedTeams]
+  D --> E{recommendations.length > 0}
+  E -->|yes| F[generateInsightBasedTeams]
+  E -->|no| G[generateBasicVariedTeams]
+  F --> H[applyCaptainDistribution]
+  G --> H
+  H --> I[Return Teams to Frontend]
+```
+
+**Diagram Explanation:**
+- The API handler delegates to the AI service (A → B).
+- For AI-guided requests, the service either runs the full conversational strategy (generateAIGuidedTeams) or falls back to basic generation.
+- Teams are then finalized with diversity and captain distribution (H) and sent back to the UI (I).
 
 ## 4. Key Formulas & Rules
 
