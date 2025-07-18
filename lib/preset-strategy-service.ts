@@ -191,14 +191,36 @@ class PresetStrategyService {
     while (attempts < maxAttempts) {
       attempts++;
       
-      // Generate a candidate team
-      const candidateTeam = await this.generatePresetTeam(
+      // Generate a base candidate team
+      const baseTeam = await this.generatePresetTeam(
         preset,
         players,
         match,
         request,
         teamIndex + attempts * 1000 // Use attempts to vary team generation
       );
+      // Introduce ~25% random swaps to boost diversity
+      const randomizedPlayers = [...baseTeam.players];
+      const swapCount = Math.ceil(randomizedPlayers.length * 0.25);
+      for (let s = 0; s < swapCount; s++) {
+        const idx = Math.floor(Math.random() * randomizedPlayers.length);
+        const pool = players.filter(p => !randomizedPlayers.some(rp => rp.id === p.id));
+        if (pool.length) {
+          randomizedPlayers[idx] = pool[Math.floor(Math.random() * pool.length)];
+        }
+      }
+      // Reassign captain and vice-captain based on randomized players
+      const { captain: newCaptain, viceCaptain: newViceCaptain } = this.selectCaptainsForPreset(
+        preset,
+        randomizedPlayers,
+        teamIndex
+      );
+      const candidateTeam = {
+        ...baseTeam,
+        players: randomizedPlayers,
+        captain: newCaptain,
+        viceCaptain: newViceCaptain
+      };
 
       // Calculate diversity score against existing teams
       const diversityScore = this.calculateTeamDiversityScore(candidateTeam, existingTeams);
