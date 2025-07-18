@@ -40,7 +40,7 @@ flowchart LR
   D --> E[Answer Q4: Match Narrative]
   E --> F[Answer Q5: Risk Appetite]
   F --> G[Collect UserInsights & conversationHistory]
-  G --> H[Click "Generate Teams"]
+  G --> H[Click Generate Teams]
   H --> I[POST /api/teams/generate]
 ```
 
