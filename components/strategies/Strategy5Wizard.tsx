@@ -10,13 +10,13 @@ import { Slider } from '@/components/ui/slider';
 interface Strategy5WizardProps {
   matchId: string;
   onGenerate: (prefs: any, count: number) => void;
+  teamCount?: number;
 }
 
-export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5WizardProps) {
-  const [teamCount, setTeamCount] = useState(15);
-  const [stage, setStage] = useState<'filters' | 'summary'>('filters');
-  
-  const [filters, setFilters] = useState({
+export default function Strategy5Wizard({ matchId, onGenerate, teamCount: initialTeamCount = 11 }: Strategy5WizardProps) {
+  const [step, setStep] = useState(1);
+  const [teamCount, setTeamCount] = useState(initialTeamCount);
+  const [guardrails, setGuardrails] = useState({
     dreamTeamPercentage: { min: 0, max: 100 },
     selectionPercentage: { min: 0, max: 100 },
     averagePoints: { min: 0, max: 200 },
@@ -30,7 +30,7 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
   });
 
   const updateFilter = (category: string, field: string, value: number, isMax = false) => {
-    setFilters(prev => ({
+    setGuardrails(prev => ({
       ...prev,
       [category]: {
         ...prev[category as keyof typeof prev],
@@ -40,7 +40,7 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
   };
 
   const updateRoleFilter = (role: string, field: string, value: number) => {
-    setFilters(prev => ({
+    setGuardrails(prev => ({
       ...prev,
       playerRoles: {
         ...prev.playerRoles,
@@ -55,9 +55,9 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
   const handleSaveGuardrails = () => {
     // Validate that at least one additional filter besides Dream Team % is set
     const hasAdditionalFilter = 
-      (filters.selectionPercentage.min > 0 || filters.selectionPercentage.max < 100) ||
-      (filters.averagePoints.min > 0 || filters.averagePoints.max < 200) ||
-      (filters.credits.min > 6 || filters.credits.max < 12);
+      (guardrails.selectionPercentage.min > 0 || guardrails.selectionPercentage.max < 100) ||
+      (guardrails.averagePoints.min > 0 || guardrails.averagePoints.max < 200) ||
+      (guardrails.credits.min > 6 || guardrails.credits.max < 12);
     
     if (!hasAdditionalFilter) {
       alert('Please set at least one additional filter besides Dream Team % to proceed.\n\nYou can adjust Selection %, Average Points, or Credits range to create more specific filtering criteria.');
@@ -65,25 +65,25 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
     }
     
     // Validate that Dream Team % range is reasonable
-    if (filters.dreamTeamPercentage.min >= filters.dreamTeamPercentage.max) {
+    if (guardrails.dreamTeamPercentage.min >= guardrails.dreamTeamPercentage.max) {
       alert('Dream Team % minimum value must be less than maximum value.');
       return;
     }
     
-    setStage('summary');
+    setStep(2);
   };
 
   const handleGenerateTeams = () => {
     const strategyData = {
       strategy: 'stats-driven',
-      filters,
+      filters: guardrails,
       summary: generateSummary()
     };
     onGenerate(strategyData, teamCount);
   };
 
   const generateSummary = () => {
-    const { dreamTeamPercentage, selectionPercentage, averagePoints, playerRoles } = filters;
+    const { dreamTeamPercentage, selectionPercentage, averagePoints, playerRoles } = guardrails;
     
     let summary = 'Generating teams with ';
     
@@ -118,7 +118,7 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
     return summary;
   };
 
-  if (stage === 'filters') {
+  if (step === 1) {
     return (
       <div className="container mx-auto p-4">
         <div className="mb-6">
@@ -145,8 +145,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                 <Label className="text-sm font-medium">Dream Team Percentage <span className="text-red-500">*</span></Label>
                 <div className="mt-2 space-y-2">
                   <Slider
-                    value={[filters.dreamTeamPercentage.min, filters.dreamTeamPercentage.max]}
-                    onValueChange={([min, max]) => setFilters(prev => ({
+                    value={[guardrails.dreamTeamPercentage.min, guardrails.dreamTeamPercentage.max]}
+                    onValueChange={([min, max]) => setGuardrails(prev => ({
                       ...prev,
                       dreamTeamPercentage: { min, max }
                     }))}
@@ -155,8 +155,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                     className="w-full"
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>{filters.dreamTeamPercentage.min}%</span>
-                    <span>{filters.dreamTeamPercentage.max}%</span>
+                    <span>{guardrails.dreamTeamPercentage.min}%</span>
+                    <span>{guardrails.dreamTeamPercentage.max}%</span>
                   </div>
                 </div>
               </div>
@@ -165,8 +165,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                 <Label className="text-sm font-medium">Selection Percentage <span className="text-gray-400">(Optional)</span></Label>
                 <div className="mt-2 space-y-2">
                   <Slider
-                    value={[filters.selectionPercentage.min, filters.selectionPercentage.max]}
-                    onValueChange={([min, max]) => setFilters(prev => ({
+                    value={[guardrails.selectionPercentage.min, guardrails.selectionPercentage.max]}
+                    onValueChange={([min, max]) => setGuardrails(prev => ({
                       ...prev,
                       selectionPercentage: { min, max }
                     }))}
@@ -175,8 +175,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                     className="w-full"
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>{filters.selectionPercentage.min}%</span>
-                    <span>{filters.selectionPercentage.max}%</span>
+                    <span>{guardrails.selectionPercentage.min}%</span>
+                    <span>{guardrails.selectionPercentage.max}%</span>
                   </div>
                 </div>
               </div>
@@ -185,8 +185,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                 <Label className="text-sm font-medium">Average Points <span className="text-gray-400">(Optional)</span></Label>
                 <div className="mt-2 space-y-2">
                   <Slider
-                    value={[filters.averagePoints.min, filters.averagePoints.max]}
-                    onValueChange={([min, max]) => setFilters(prev => ({
+                    value={[guardrails.averagePoints.min, guardrails.averagePoints.max]}
+                    onValueChange={([min, max]) => setGuardrails(prev => ({
                       ...prev,
                       averagePoints: { min, max }
                     }))}
@@ -195,8 +195,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                     className="w-full"
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>{filters.averagePoints.min} pts</span>
-                    <span>{filters.averagePoints.max} pts</span>
+                    <span>{guardrails.averagePoints.min} pts</span>
+                    <span>{guardrails.averagePoints.max} pts</span>
                   </div>
                 </div>
               </div>
@@ -205,8 +205,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                 <Label className="text-sm font-medium">Credit Range <span className="text-gray-400">(Optional)</span></Label>
                 <div className="mt-2 space-y-2">
                   <Slider
-                    value={[filters.credits.min, filters.credits.max]}
-                    onValueChange={([min, max]) => setFilters(prev => ({
+                    value={[guardrails.credits.min, guardrails.credits.max]}
+                    onValueChange={([min, max]) => setGuardrails(prev => ({
                       ...prev,
                       credits: { min, max }
                     }))}
@@ -216,8 +216,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                     className="w-full"
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>{filters.credits.min} cr</span>
-                    <span>{filters.credits.max} cr</span>
+                    <span>{guardrails.credits.min} cr</span>
+                    <span>{guardrails.credits.max} cr</span>
                   </div>
                 </div>
               </div>
@@ -235,8 +235,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                 <Label className="text-sm font-medium">Batsmen Count</Label>
                 <div className="mt-2 space-y-2">
                   <Slider
-                    value={[filters.playerRoles.batsmen.min, filters.playerRoles.batsmen.max]}
-                    onValueChange={([min, max]) => setFilters(prev => ({
+                    value={[guardrails.playerRoles.batsmen.min, guardrails.playerRoles.batsmen.max]}
+                    onValueChange={([min, max]) => setGuardrails(prev => ({
                       ...prev,
                       playerRoles: {
                         ...prev.playerRoles,
@@ -249,8 +249,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                     className="w-full"
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>{filters.playerRoles.batsmen.min}</span>
-                    <span>{filters.playerRoles.batsmen.max}</span>
+                    <span>{guardrails.playerRoles.batsmen.min}</span>
+                    <span>{guardrails.playerRoles.batsmen.max}</span>
                   </div>
                 </div>
               </div>
@@ -259,8 +259,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                 <Label className="text-sm font-medium">Bowlers Count</Label>
                 <div className="mt-2 space-y-2">
                   <Slider
-                    value={[filters.playerRoles.bowlers.min, filters.playerRoles.bowlers.max]}
-                    onValueChange={([min, max]) => setFilters(prev => ({
+                    value={[guardrails.playerRoles.bowlers.min, guardrails.playerRoles.bowlers.max]}
+                    onValueChange={([min, max]) => setGuardrails(prev => ({
                       ...prev,
                       playerRoles: {
                         ...prev.playerRoles,
@@ -273,8 +273,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                     className="w-full"
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>{filters.playerRoles.bowlers.min}</span>
-                    <span>{filters.playerRoles.bowlers.max}</span>
+                    <span>{guardrails.playerRoles.bowlers.min}</span>
+                    <span>{guardrails.playerRoles.bowlers.max}</span>
                   </div>
                 </div>
               </div>
@@ -283,8 +283,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                 <Label className="text-sm font-medium">All-Rounders Count</Label>
                 <div className="mt-2 space-y-2">
                   <Slider
-                    value={[filters.playerRoles.allRounders.min, filters.playerRoles.allRounders.max]}
-                    onValueChange={([min, max]) => setFilters(prev => ({
+                    value={[guardrails.playerRoles.allRounders.min, guardrails.playerRoles.allRounders.max]}
+                    onValueChange={([min, max]) => setGuardrails(prev => ({
                       ...prev,
                       playerRoles: {
                         ...prev.playerRoles,
@@ -297,8 +297,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                     className="w-full"
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>{filters.playerRoles.allRounders.min}</span>
-                    <span>{filters.playerRoles.allRounders.max}</span>
+                    <span>{guardrails.playerRoles.allRounders.min}</span>
+                    <span>{guardrails.playerRoles.allRounders.max}</span>
                   </div>
                 </div>
               </div>
@@ -307,8 +307,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                 <Label className="text-sm font-medium">Wicket-Keepers Count</Label>
                 <div className="mt-2 space-y-2">
                   <Slider
-                    value={[filters.playerRoles.wicketKeepers.min, filters.playerRoles.wicketKeepers.max]}
-                    onValueChange={([min, max]) => setFilters(prev => ({
+                    value={[guardrails.playerRoles.wicketKeepers.min, guardrails.playerRoles.wicketKeepers.max]}
+                    onValueChange={([min, max]) => setGuardrails(prev => ({
                       ...prev,
                       playerRoles: {
                         ...prev.playerRoles,
@@ -321,8 +321,8 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
                     className="w-full"
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>{filters.playerRoles.wicketKeepers.min}</span>
-                    <span>{filters.playerRoles.wicketKeepers.max}</span>
+                    <span>{guardrails.playerRoles.wicketKeepers.min}</span>
+                    <span>{guardrails.playerRoles.wicketKeepers.max}</span>
                   </div>
                 </div>
               </div>
@@ -366,19 +366,19 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
             <div className="grid grid-cols-2 gap-4">
               <div className="p-3 bg-gray-50 rounded">
                 <div className="text-sm font-medium text-gray-600">Dream Team %</div>
-                <div className="text-lg font-bold">{filters.dreamTeamPercentage.min}% - {filters.dreamTeamPercentage.max}%</div>
+                <div className="text-lg font-bold">{guardrails.dreamTeamPercentage.min}% - {guardrails.dreamTeamPercentage.max}%</div>
               </div>
               <div className="p-3 bg-gray-50 rounded">
                 <div className="text-sm font-medium text-gray-600">Selection %</div>
-                <div className="text-lg font-bold">{filters.selectionPercentage.min}% - {filters.selectionPercentage.max}%</div>
+                <div className="text-lg font-bold">{guardrails.selectionPercentage.min}% - {guardrails.selectionPercentage.max}%</div>
               </div>
               <div className="p-3 bg-gray-50 rounded">
                 <div className="text-sm font-medium text-gray-600">Avg Points</div>
-                <div className="text-lg font-bold">{filters.averagePoints.min} - {filters.averagePoints.max}</div>
+                <div className="text-lg font-bold">{guardrails.averagePoints.min} - {guardrails.averagePoints.max}</div>
               </div>
               <div className="p-3 bg-gray-50 rounded">
                 <div className="text-sm font-medium text-gray-600">Credits</div>
-                <div className="text-lg font-bold">{filters.credits.min} - {filters.credits.max}</div>
+                <div className="text-lg font-bold">{guardrails.credits.min} - {guardrails.credits.max}</div>
               </div>
             </div>
           </CardContent>
@@ -392,19 +392,19 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Batsmen:</span>
-                <span className="font-bold">{filters.playerRoles.batsmen.min} - {filters.playerRoles.batsmen.max}</span>
+                <span className="font-bold">{guardrails.playerRoles.batsmen.min} - {guardrails.playerRoles.batsmen.max}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Bowlers:</span>
-                <span className="font-bold">{filters.playerRoles.bowlers.min} - {filters.playerRoles.bowlers.max}</span>
+                <span className="font-bold">{guardrails.playerRoles.bowlers.min} - {guardrails.playerRoles.bowlers.max}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">All-Rounders:</span>
-                <span className="font-bold">{filters.playerRoles.allRounders.min} - {filters.playerRoles.allRounders.max}</span>
+                <span className="font-bold">{guardrails.playerRoles.allRounders.min} - {guardrails.playerRoles.allRounders.max}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Wicket-Keepers:</span>
-                <span className="font-bold">{filters.playerRoles.wicketKeepers.min} - {filters.playerRoles.wicketKeepers.max}</span>
+                <span className="font-bold">{guardrails.playerRoles.wicketKeepers.min} - {guardrails.playerRoles.wicketKeepers.max}</span>
               </div>
             </div>
           </CardContent>
@@ -448,7 +448,7 @@ export default function Strategy5Wizard({ matchId, onGenerate }: Strategy5Wizard
       </Card>
 
       <div className="mt-6 flex justify-between items-center">
-        <Button variant="outline" onClick={() => setStage('filters')}>
+        <Button variant="outline" onClick={() => setStep(1)}>
           Back to Filters
         </Button>
         <Button onClick={handleGenerateTeams} className="bg-blue-600 hover:bg-blue-700">

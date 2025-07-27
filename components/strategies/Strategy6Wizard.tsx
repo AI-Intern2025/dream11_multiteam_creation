@@ -9,13 +9,14 @@ import { useMatchData } from '@/hooks/use-cricket-data';
 interface Strategy6WizardProps {
   matchId: string;
   onGenerate: (prefs: any, count: number) => void;
+  teamCount?: number;
 }
 
-export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6WizardProps) {
+export default function Strategy6Wizard({ matchId, onGenerate, teamCount: initialTeamCount = 11 }: Strategy6WizardProps) {
   const { data: matchData } = useMatchData(matchId);
-  const [teamCount, setTeamCount] = useState(15);
-  const [stage, setStage] = useState<'presets' | 'summary'>('presets');
-  const [selectedPreset, setSelectedPreset] = useState<string>('');
+  const [step, setStep] = useState(1);
+  const [teamCount, setTeamCount] = useState(initialTeamCount);
+  const [selectedPresets, setSelectedPresets] = useState<string[]>([]);
 
   const matchName = matchData?.match?.team_name || 'Team A vs Team B';
   const [teamAName, teamBName] = matchName.split(' vs ');
@@ -96,17 +97,23 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
   ];
 
   const handleSelectPreset = (presetId: string) => {
-    setSelectedPreset(presetId);
+    setSelectedPresets(prev => {
+      if (prev.includes(presetId)) {
+        return prev.filter(id => id !== presetId);
+      } else {
+        return [...prev, presetId];
+      }
+    });
   };
 
   const handleSaveConfig = () => {
-    setStage('summary');
+    setStep(2);
   };
 
   const handleGenerateTeams = () => {
-    const preset = presetConfigurations.find(p => p.id === selectedPreset);
+    const selectedPresetConfigs = presetConfigurations.filter(p => selectedPresets.includes(p.id));
     const strategyData = {
-      preset,
+      presets: selectedPresetConfigs,
       teamNames: { teamA: teamAName, teamB: teamBName },
       matchConditions: {
         pitch: matchData?.match?.pitch_condition,
@@ -117,9 +124,9 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
     onGenerate(strategyData, teamCount);
   };
 
-  const selectedPresetData = presetConfigurations.find(p => p.id === selectedPreset);
+  const selectedPresetData = presetConfigurations.filter(p => selectedPresets.includes(p.id));
 
-  if (stage === 'presets') {
+  if (step === 1) {
     return (
       <div className="container mx-auto p-4">
         <div className="mb-6">
@@ -134,7 +141,7 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
             <Card 
               key={preset.id} 
               className={`cursor-pointer transition-all ${
-                selectedPreset === preset.id 
+                selectedPresets.includes(preset.id) 
                   ? 'ring-2 ring-blue-500 bg-blue-50' 
                   : 'hover:shadow-md'
               }`}
@@ -204,7 +211,7 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
           </Button>
           <Button 
             onClick={handleSaveConfig}
-            disabled={!selectedPreset}
+            disabled={selectedPresets.length === 0}
             className="bg-blue-600 hover:bg-blue-700"
           >
             Save Configuration
@@ -224,48 +231,52 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
         </p>
       </div>
 
-      {selectedPresetData && (
+      {selectedPresetData.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <Card>
             <CardHeader>
-              <CardTitle>Selected Preset</CardTitle>
+              <CardTitle>Selected Preset{selectedPresetData.length > 1 ? 's' : ''}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div>
-                  <h3 className="font-semibold text-lg text-blue-600">
-                    {selectedPresetData.name}
-                  </h3>
-                  <p className="text-gray-600 mt-1">
-                    {selectedPresetData.description}
-                  </p>
-                </div>
-                
-                <div>
-                  <h4 className="font-medium text-sm text-gray-700 mb-1">Strategy:</h4>
-                  <p className="text-sm text-gray-600">{selectedPresetData.strategy}</p>
-                </div>
-                
-                <div>
-                  <h4 className="font-medium text-sm text-gray-700 mb-2">Risk Level:</h4>
-                  <Badge 
-                    variant={selectedPresetData.riskLevel === 'high' ? 'destructive' : 
-                            selectedPresetData.riskLevel === 'medium' ? 'default' : 'secondary'}
-                  >
-                    {selectedPresetData.riskLevel} risk
-                  </Badge>
-                </div>
-                
-                <div>
-                  <h4 className="font-medium text-sm text-gray-700 mb-2">Tags:</h4>
-                  <div className="flex flex-wrap gap-1">
-                    {selectedPresetData.tags.map((tag) => (
-                      <Badge key={tag} variant="outline" className="text-xs">
-                        {tag}
+                {selectedPresetData.map(preset => (
+                  <div key={preset.id} className="mb-4">
+                    <div>
+                      <h3 className="font-semibold text-lg text-blue-600">
+                        {preset.name}
+                      </h3>
+                      <p className="text-gray-600 mt-1">
+                        {preset.description}
+                      </p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-medium text-sm text-gray-700 mb-1">Strategy:</h4>
+                      <p className="text-sm text-gray-600">{preset.strategy}</p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-medium text-sm text-gray-700 mb-2">Risk Level:</h4>
+                      <Badge 
+                        variant={preset.riskLevel === 'high' ? 'destructive' : 
+                                preset.riskLevel === 'medium' ? 'default' : 'secondary'}
+                      >
+                        {preset.riskLevel} risk
                       </Badge>
-                    ))}
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-medium text-sm text-gray-700 mb-2">Tags:</h4>
+                      <div className="flex flex-wrap gap-1">
+                        {preset.tags.map((tag) => (
+                          <Badge key={tag} variant="outline" className="text-xs">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             </CardContent>
           </Card>
@@ -323,7 +334,7 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
           <div className="p-4 bg-gray-50 rounded-lg">
             <h4 className="font-semibold mb-2">AI Strategy Summary:</h4>
             <p className="text-gray-800 italic">
-              &quot;Applying {selectedPresetData?.name} configuration with {teamCount} teams, adjusted for {matchData?.match?.pitch_condition || 'unknown'} pitch and {matchData?.match?.weather_condition || 'unknown'} weather conditions.&quot;
+              &quot;Applying {selectedPresetData.map(p => p.name).join(' & ')} configuration with {teamCount} teams, adjusted for {matchData?.match?.pitch_condition || 'unknown'} pitch and {matchData?.match?.weather_condition || 'unknown'} weather conditions.&quot;
             </p>
           </div>
         </CardContent>
@@ -350,7 +361,7 @@ export default function Strategy6Wizard({ matchId, onGenerate }: Strategy6Wizard
       </div>
 
       <div className="mt-6 flex justify-between items-center">
-        <Button variant="outline" onClick={() => setStage('presets')}>
+        <Button variant="outline" onClick={() => setStep(1)}>
           Back to Presets
         </Button>
         <Button onClick={handleGenerateTeams} className="bg-blue-600 hover:bg-blue-700">

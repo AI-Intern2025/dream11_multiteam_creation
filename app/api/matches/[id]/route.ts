@@ -37,7 +37,7 @@ export async function GET(
   console.log(`🔍 Fetching match data for ID: ${matchId}`);
   
   // Check if required API keys are configured
-  const requiredKeys = ['SPORTRADAR_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'];
+  const requiredKeys = ['OPENAI_API_KEY', 'GEMINI_API_KEY'];
   const missingKeys = requiredKeys.filter(key => !process.env[key]);
   
   if (missingKeys.length > 0) {

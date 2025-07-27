@@ -1,7 +1,7 @@
 # Strategy 6: Preset Scenarios & Configurations
 
 ## 1. Introduction
-**Strategy 6** offers turnkey, scenario-driven lineups based on pre-defined match heuristics—"presets"—tailored to common cricket situations (high-scoring team, collapse scenarios, differential contrarian plays, balanced roles, etc.). Each preset encapsulates focus constraints, risk level, and tags, then generates diversified teams honoring those rules and ensuring at least 25% roster variation.
+**Strategy 6** offers turnkey, scenario-driven lineups based on pre-defined match heuristics—"presets"—tailored to common cricket situations (high-scoring team, collapse scenarios, differential contrarian plays, balanced roles, etc.). Each preset encapsulates focus constraints, risk level, and tags, then generates diversified teams honoring those rules and ensuring at least 25% roster variation. The system now includes **user verification** functionality, allowing users to verify and adjust teams based on the selected scenario after generation, ensuring teams meet the scenario's constraints.
 
 ## 2. User Workflow
 
@@ -12,9 +12,10 @@
    - View auto-loaded match conditions (pitch, weather, venue) for context.
 
 2. **Review & Configure** (`*summary*` stage)
-   - Confirm preset details (name, description, strategy, risk level, tags).
-   - Adjust number of teams (1–50) via +/- buttons.
-   - Preview AI strategy summary (incorporates preset name and match conditions).
+   - Confirm preset details (name, description, strategy, risk level, tags)
+   - Adjust number of teams (1–50) via +/- buttons
+   - Preview AI strategy summary (incorporates preset name and match conditions)
+   - **Scenario Constraint Preview**: Shows expected team composition based on selected preset
 
 3. **Generate Teams**
    - Click **Generate X Teams** → calls:
@@ -22,9 +23,16 @@
      onGenerate({
        preset,               // PresetConfiguration object
        teamNames,            // { teamA, teamB }
-       matchConditions       // { pitch, weather, venue }
+       matchConditions,      // { pitch, weather, venue }
+       verificationEnabled: true        // NEW: Enable post-generation verification
      }, teamCount);
      ```
+
+4. **User Verification** (NEW)
+   - **Post-Generation Review**: After teams are generated, users can verify and adjust them based on the selected scenario
+   - **Constraint Verification**: System checks if teams meet the scenario's constraints (e.g., confirm "All-Rounder Heavy" has at least 4 all-rounders in each team)
+   - **Adjustment Interface**: Users can make minor adjustments while maintaining preset integrity
+   - **Validation Feedback**: System provides feedback on whether teams still match the original scenario after modifications
 
 ### 2.1 Frontend Workflow Diagram
 ```mermaid

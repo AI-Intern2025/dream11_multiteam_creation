@@ -8,14 +8,15 @@ import { useMatchData } from '@/hooks/use-cricket-data';
 interface Strategy2WizardProps {
   matchId: string;
   onGenerate: (prefs: any, count: number) => void;
+  teamCount?: number;
 }
 
-export default function Strategy2Wizard({ matchId, onGenerate }: Strategy2WizardProps) {
+export default function Strategy2Wizard({ matchId, onGenerate, teamCount: initialTeamCount = 11 }: Strategy2WizardProps) {
   const { data: matchData, loading: matchLoading } = useMatchData(matchId);
   const [stage, setStage] = useState<'selection' | 'distribution'>('selection');
   const [selectedPlayers, setSelectedPlayers] = useState<any[]>([]);
   const [combos, setCombos] = useState<{ captain: string; viceCaptain: string; percentage: number }[]>([]);
-  const [teamCount, setTeamCount] = useState(15);
+  const [teamCount, setTeamCount] = useState(initialTeamCount);
   // Active players per team
   const [players1, setPlayers1] = useState<any[]>([]);
   const [players2, setPlayers2] = useState<any[]>([]);

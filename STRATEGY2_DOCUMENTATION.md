@@ -1,27 +1,33 @@
 # Strategy 2: Same XI, Different Captains
 
 ## 1. Introduction
-**Strategy 2** allows you to select a fixed 11-player base team and generate multiple fantasy teams by varying only the captain and vice-captain assignments according to specified percentage distributions. This approach maximizes leadership diversity while keeping player selections constant.
+**Strategy 2** allows you to select a fixed 11-player base team and generate multiple fantasy teams by varying only the captain and vice-captain assignments. The system now supports **OCR image recognition** for team selection via screenshots, can generate up to **100 teams** for larger-scale contests, and uses **permutation formulas** to ensure unique captain/vice-captain combinations across all teams. This approach maximizes leadership diversity while keeping player selections constant.
 
 ## 2. User Workflow
 
 1. **Select Base XI** (`components/strategies/Strategy2Wizard.tsx`, _selection stage_)
-   - Displays active players from both teams.
-   - User toggles players to build exactly 11-player roster under a 100-credit cap.
-   - Once 11 players are selected, clicks **Next: Set Captains**.
+   - **Manual Selection**: Displays active players from both teams for manual toggling
+   - **OCR Image Recognition**: NEW - Users can upload screenshots of their teams, and the system automatically detects and fills the selected XI
+   - User builds exactly 11-player roster under a 100-credit cap
+   - **Context Persistence**: Once players are selected, the system retains context across all generated teams
+   - Once 11 players are selected, clicks **Next: Set Captains**
 
 2. **Define Captain/Vice-Captain Distribution** (_distribution stage_)
-   - Enter number of teams to generate (1–50).
-   - Add one or more combinations: pick captain, vice-captain from the 11 selected players and assign a percentage.
-   - Total of all percentages must equal 100%.
-   - Click **Generate Teams** to invoke generation.
+   - Enter number of teams to generate (1–**100** teams) - **INCREASED LIMIT**
+   - **Random Captain and VC Distribution**: System ensures no two teams have the same captain and vice-captain using permutation combinations
+   - **Permutation Formula**: System calculates maximum unique combinations and distributes them randomly
+   - Add one or more combinations: pick captain, vice-captain from the 11 selected players and assign a percentage
+   - Total of all percentages must equal 100%
+   - Click **Generate Teams** to invoke generation
 
 3. **Team Generation Request**
    ```ts
    onGenerate({
      strategy: 'same-xi',
      players: selectedPlayers,        // Array of 11 player objects
-     combos: validCombos              // [{ captain, viceCaptain, percentage }, ...]
+     combos: validCombos,             // [{ captain, viceCaptain, percentage }, ...]
+     ocrData?: uploadedImage,         // NEW: OCR image data if uploaded
+     usePermutationLogic: true        // NEW: Enable unique combinations
    }, teamCount);
    ```
    - `generateTeams(matchId, 'same-xi', teamCount, userPreferences)` sends:
@@ -33,17 +39,24 @@
 ## 2.1 Frontend Workflow Diagram
 ```mermaid
 flowchart LR
-  A[Select 11 Players] --> B[Click Next]
-  B --> C[Enter Team Count]
-  C --> D[Add Captain/VC Combos]
-  D --> E[Validate Percentages = 100%]
-  E --> F[Click Generate Teams]
-  F --> G[POST /api/teams/generate]
+  A[Select 11 Players] --> B[OCR Image Upload Option]
+  B --> C[Auto-fill from Screenshot]
+  C --> D[Click Next]
+  D --> E[Enter Team Count 1-100]
+  E --> F[Add Captain/VC Combos]
+  F --> G[Apply Permutation Logic]
+  G --> H[Validate Percentages = 100%]
+  H --> I[Click Generate Teams]
+  I --> J[POST /api/teams/generate]
 ```
 **Diagram Explanation:**
-- User flows from player selection to distribution setup.
-- Percentages validation ensures correct leadership mix.
-- Final button triggers API call with structured preferences.
+- User flows from player selection (A) with optional OCR support (B→C)
+- Enhanced team count up to 100 teams (E)
+- Permutation logic ensures unique combinations (G)
+- Final button triggers API call with structured preferences (I→J)
+
+**Example Permutation Logic:**
+If a user selects 10 teams with 11 players, the system calculates maximum unique captain/vice-captain combinations (11 × 10 = 110 possible combinations) and randomly distributes them to ensure no two teams have identical leadership.
 
 ## 3. Backend Logic
 

@@ -10,11 +10,13 @@ import { useMatchData } from '@/hooks/use-cricket-data';
 interface Strategy3WizardProps {
   matchId: string;
   onGenerate: (prefs: any, count: number) => void;
+  teamCount?: number;
 }
 
-export default function Strategy3Wizard({ matchId, onGenerate }: Strategy3WizardProps) {
+export default function Strategy3Wizard({ matchId, onGenerate, teamCount: initialTeamCount = 11 }: Strategy3WizardProps) {
   const { data: matchData } = useMatchData(matchId);
-  const [teamCount, setTeamCount] = useState(15);
+  const [step, setStep] = useState(1);
+  const [teamCount, setTeamCount] = useState(initialTeamCount);
   const [currentStep, setCurrentStep] = useState<'conditions' | 'predictions' | 'analysis' | 'generation'>('conditions');
   const [aiAnalysis, setAiAnalysis] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);

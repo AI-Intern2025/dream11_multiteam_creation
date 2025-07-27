@@ -1,23 +1,8 @@
-import { sportRadarService } from './sportradar';
 import { openAIService } from './openai';
 import { geminiService } from './gemini';
 import type { MatchAnalysis } from './openai';
+import { EnrichedMatchData } from './cricket-types';
 import Dream11TeamValidator, { DREAM11_RULES } from './dream11-validator';
-
-interface EnrichedMatchData {
-  match: any;
-  lineups: any[];
-  timeline: any;
-  weather: any;
-  teamResults: any[];
-  playerProfiles: any[];
-  tournament: any;
-  standings: any;
-  tournamentResults: any;
-  headToHead: any;
-  teamSquads: any[];
-  analysis?: MatchAnalysis;
-}
 
 class DataIntegrationService {
   async getAllMatches(): Promise<any[]> {
@@ -30,13 +15,13 @@ class DataIntegrationService {
         return this.getMockMatches();
       }
 
-      // Try to get matches from SportRadar
+      // Use mock matches as primary data source
       try {
-        const matches = await sportRadarService.getTodaysMatches();
-        console.log(`✅ Successfully fetched ${matches?.length || 0} matches from SportRadar`);
+        const matches = this.getMockMatches();
+        console.log(`✅ Successfully using ${matches?.length || 0} mock matches`);
         return matches || this.getMockMatches();
       } catch (error) {
-        console.error('❌ SportRadar API error:', error);
+        console.error('❌ Mock data error:', error);
         console.log('📋 Using mock matches as fallback');
         return this.getMockMatches();
       }
@@ -55,13 +40,13 @@ class DataIntegrationService {
         throw new Error('API keys not properly configured');
       }
 
-      // Get enriched data from SportRadar with error handling
+      // Get enriched data from mock data providers
       let enrichedData;
       try {
-        enrichedData = await sportRadarService.getEnrichedMatchData(matchId);
+        enrichedData = this.getMockEnrichedData(matchId);
       } catch (error) {
-        console.error('❌ SportRadar API error:', error);
-        // Return mock data if SportRadar fails
+        console.error('❌ Mock data error:', error);
+        // Return mock data as fallback
         enrichedData = this.getMockEnrichedData(matchId);
       }
 
@@ -163,7 +148,7 @@ class DataIntegrationService {
   }
 
   private validateAPIKeys(): boolean {
-    const requiredKeys = ['SPORTRADAR_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'];
+    const requiredKeys = ['OPENAI_API_KEY', 'GEMINI_API_KEY'];
     const missingKeys = requiredKeys.filter(key => !process.env[key]);
     
     if (missingKeys.length > 0) {
@@ -220,17 +205,52 @@ class DataIntegrationService {
     };
 
     const mockPlayers = [
-      { id: 'p1', name: 'David Warner', team: 'AUS', role: 'BAT', statistics: { batting_average: 45, strike_rate: 140 } },
-      { id: 'p2', name: 'Aaron Finch', team: 'AUS', role: 'BAT', statistics: { batting_average: 42, strike_rate: 135 } },
-      { id: 'p3', name: 'Steve Smith', team: 'AUS', role: 'BAT', statistics: { batting_average: 48, strike_rate: 125 } },
-      { id: 'p4', name: 'Glenn Maxwell', team: 'AUS', role: 'ALL', statistics: { batting_average: 35, strike_rate: 155, wickets_taken: 25 } },
-      { id: 'p5', name: 'Pat Cummins', team: 'AUS', role: 'BOWL', statistics: { wickets_taken: 45, economy_rate: 7.2 } },
-      { id: 'p6', name: 'Alex Carey', team: 'AUS', role: 'WK', statistics: { batting_average: 38, strike_rate: 130 } },
-      { id: 'p7', name: 'Jos Buttler', team: 'ENG', role: 'WK', statistics: { batting_average: 44, strike_rate: 145 } },
-      { id: 'p8', name: 'Jason Roy', team: 'ENG', role: 'BAT', statistics: { batting_average: 40, strike_rate: 142 } },
-      { id: 'p9', name: 'Joe Root', team: 'ENG', role: 'BAT', statistics: { batting_average: 46, strike_rate: 128 } },
-      { id: 'p10', name: 'Ben Stokes', team: 'ENG', role: 'ALL', statistics: { batting_average: 38, strike_rate: 138, wickets_taken: 30 } },
-      { id: 'p11', name: 'Jofra Archer', team: 'ENG', role: 'BOWL', statistics: { wickets_taken: 42, economy_rate: 7.5 } }
+      { 
+        id: 'p1', 
+        name: 'David Warner', 
+        playing_role: 'BAT', 
+        nationality: 'AUS',
+        statistics: { 
+          batting: { matches: 100, innings: 95, runs: 4500, balls_faced: 3200, strike_rate: 140, average: 45, highest_score: 179, centuries: 12, half_centuries: 22, fours: 420, sixes: 85, not_outs: 8 }
+        } 
+      },
+      { 
+        id: 'p2', 
+        name: 'Aaron Finch', 
+        playing_role: 'BAT', 
+        nationality: 'AUS',
+        statistics: { 
+          batting: { matches: 95, innings: 90, runs: 3780, balls_faced: 2800, strike_rate: 135, average: 42, highest_score: 172, centuries: 10, half_centuries: 20, fours: 380, sixes: 75, not_outs: 5 }
+        } 
+      },
+      { 
+        id: 'p7', 
+        name: 'Jos Buttler', 
+        playing_role: 'WK', 
+        nationality: 'ENG',
+        statistics: { 
+          batting: { matches: 85, innings: 80, runs: 3520, balls_faced: 2430, strike_rate: 145, average: 44, highest_score: 162, centuries: 9, half_centuries: 18, fours: 340, sixes: 90, not_outs: 12 }
+        } 
+      },
+      { 
+        id: 'p4', 
+        name: 'Glenn Maxwell', 
+        playing_role: 'ALL', 
+        nationality: 'AUS',
+        statistics: { 
+          batting: { matches: 70, innings: 65, runs: 2275, balls_faced: 1470, strike_rate: 155, average: 35, highest_score: 145, centuries: 4, half_centuries: 12, fours: 180, sixes: 95, not_outs: 8 },
+          bowling: { matches: 70, innings: 60, overs: 450, balls: 2700, runs_conceded: 1980, wickets: 25, economy_rate: 7.9, average: 32.5, strike_rate: 108, best_figures: '4/32', four_wickets: 2, five_wickets: 0, maidens: 15 }
+        } 
+      },
+      { 
+        id: 'p5', 
+        name: 'Pat Cummins', 
+        playing_role: 'BOWL', 
+        nationality: 'AUS',
+        statistics: { 
+          bowling: { matches: 60, innings: 55, overs: 520, balls: 3120, runs_conceded: 2246, wickets: 45, economy_rate: 7.2, average: 24.8, strike_rate: 69, best_figures: '5/28', four_wickets: 4, five_wickets: 3, maidens: 25 }
+        } 
+      }
     ];
 
     return {

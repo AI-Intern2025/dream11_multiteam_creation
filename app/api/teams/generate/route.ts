@@ -34,14 +34,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate teamCount
+    // Validate teamCount - Updated to support up to 100 teams
     const parsedTeamCount = parseInt(teamCount);
-    if (isNaN(parsedTeamCount) || parsedTeamCount < 1 || parsedTeamCount > 50) {
+    if (isNaN(parsedTeamCount) || parsedTeamCount < 1 || parsedTeamCount > 100) {
       return NextResponse.json(
         {
           success: false,
           error: 'Invalid team count',
-          message: 'Team count must be a number between 1 and 50.'
+          message: 'Team count must be a number between 1 and 100.'
         },
         { status: 400 }
       );

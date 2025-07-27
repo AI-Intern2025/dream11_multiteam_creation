@@ -1,7 +1,7 @@
 # Strategy 7: Role-Split Lineups
 
 ## 1. Introduction
-**Strategy 7** allows you to define exact role distributions—batting order splits, bowling type splits, and core roles—then generates teams that adhere strictly to your configuration while enforcing Dream11 rules and roster diversity. This gives full control over team composition structure.
+**Strategy 7** allows you to define exact role distributions—batting order splits, bowling type splits, and core roles—then generates teams that adhere strictly to your configuration while enforcing Dream11 rules and roster diversity. The system now features **pivot-based output**, displaying results in a pivot-style format that shows how players are distributed across roles in each team. This gives full control over team composition structure with enhanced visualization capabilities.
 
 ## 2. User Workflow
 
@@ -15,17 +15,29 @@
    - Click **Continue to Summary**.
 
 2. **Review & Generate** (`*summary*` stage)
-   - Preview configuration overview and AI strategy summary.
-   - Adjust number of teams if needed.
+   - Preview configuration overview and AI strategy summary
+   - **Role Distribution Preview**: Shows exactly how many players will be selected for each role category
+   - Adjust number of teams if needed
+   - **Pivot Output Preview**: Shows expected pivot-style results format
    - Click **Generate X Teams** → calls:
      ```ts
      onGenerate({
        strategy: 'role-split',
        roleSplitConfig: config,
        teamNames: { teamA, teamB },
-       matchConditions: { pitch, weather, venue }
+       matchConditions: { pitch, weather, venue },
+       outputFormat: 'pivot'              // NEW: Enable pivot-style output
      }, config.teamCount);
      ```
+
+3. **Results Display** (NEW)
+   - **Pivot-based Output**: Results are shown in a pivot-style format, displaying how players are distributed across roles in each team
+   - **Role Distribution Table**: Interactive table showing:
+     - Teams as rows
+     - Role categories as columns 
+     - Player names in each cell
+     - Color coding for easy identification
+   - **Export Options**: Pivot table can be exported to Excel/CSV format
 
 ### 2.1 Frontend Workflow Diagram
 ```mermaid

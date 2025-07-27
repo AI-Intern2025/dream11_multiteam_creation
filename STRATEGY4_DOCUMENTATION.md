@@ -1,24 +1,27 @@
 # Strategy 4: Core-Hedge Comprehensive Strategy
 
 ## 1. Introduction
-**Strategy 4** (Core-Hedge) lets you lock in a set of high-confidence "core" players across most teams, rotate in "hedge" picks in about half of the lineups, and sprinkle in low-ownership "differential" players in one or two teams. This hybrid approach balances safety and upside, with flexible captaincy priority ordering.
+**Strategy 4** (Core-Hedge) lets you lock in a set of high-confidence "core" players across most teams, rotate in "hedge" picks in about half of the lineups, and sprinkle in low-ownership "differential" players in one or two teams. The system now includes **context persistence** to remember selected core, hedge, and differential players after team generation, and provides a **captain/VC distribution breakdown** showing how many times each player appears as captain/vice-captain across teams. This hybrid approach balances safety and upside, with flexible captaincy priority ordering.
 
 ## 2. User Workflow
 
 1. **Player Categorization** (`components/strategies/Strategy4Wizard.tsx`, *selection* stage)
    - Fetch active players for both teams via `useMatchData(matchId)` → `/api/players?matchId&teamName&onlyActive=true`.
-   - Click **Core**, **Hedge**, **Diff** buttons to assign players into three pools (`core`, `hedge`, `differential`).
-   - Selections stored in state: `{ core: Player[], hedge: Player[], differential: Player[] }`.
+   - Click **Core**, **Hedge**, **Diff** buttons to assign players into three pools (`core`, `hedge`, `differential`)
+   - **Context Persistence**: System remembers the selected core, hedge, and differential players after team generation, reassuring users that their preferences have been respected
+   - Selections stored in state: `{ core: Player[], hedge: Player[], differential: Player[] }`
    - Click **Save Plan & Set Captains** to advance.
 
 2. **Captain Priority Ordering** (`*captaincy*` stage)
-   - All selected players listed; click **Add** to push names into `captainOrder` array.
-   - Drag or click to reorder; the index in `captainOrder` determines priority per team.
+   - All selected players listed; click **Add** to push names into `captainOrder` array
+   - **Captain/VC Distribution Setup**: Define how captaincy should be distributed across player categories
+   - Drag or click to reorder; the index in `captainOrder` determines priority per team
    - Click **Review & Generate** to advance.
 
 3. **Summary & Generate** (`*summary*` stage)
-   - Review counts: core, hedge, differential and preview captain priority.
-   - Adjust number of teams via `setTeamCount(1–30)`.
+   - Review counts: core, hedge, differential and preview captain priority
+   - **Captain/VC Distribution Breakdown**: System shows breakdown of how many times each player will appear as captain/vice-captain across teams, offering more insights
+   - Adjust number of teams via `setTeamCount(1–30)`
    - Click **Generate X Teams** → calls:
      ```ts
      onGenerate({

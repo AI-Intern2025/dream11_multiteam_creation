@@ -1,22 +1,39 @@
 # Strategy 1: AI-Guided Conversational Assistant
 
 ## 1. Introduction
-**Strategy 1** implements an AI-guided, chat-driven workflow that captures user insights via a brief conversation and uses those insights to generate multiple diverse fantasy teams with intelligent captain/vice-captain assignments. This document details the end-to-end workflow, backend logic, formulas, data sources, and AI integration points.
+**Strategy 1** implements an AI-guided, chat-driven workflow that captures user insights via a simplified conversation and uses those insights to generate multiple diverse fantasy teams with intelligent captain/vice-captain assignments. The strategy now focuses on shorter, more targeted questions while handling conflicting inputs intelligently and incorporating match insights alongside team generation results. This document details the end-to-end workflow, backend logic, formulas, data sources, and AI integration points.
 
 ## 2. User Workflow
 
-1. **Conversation UI** (`components/strategies/Strategy1Wizard.tsx`)
-   - Presents 5 questions: match winner, score range, backed players, match narrative, risk appetite.
+1. **Simplified Conversation UI** (`components/strategies/Strategy1Wizard.tsx`)
+   - Presents 3-4 simplified questions instead of 5 complex ones:
+     - "What is your predicted match outcome?" (Winner prediction with confidence level)
+     - "Which key players do you want to focus on?" (Core player preferences) 
+     - "What is your risk appetite for this match?" (Conservative/Balanced/Aggressive)
+     - Optional: "Any specific match insights?" (Additional context)
+   - **Shorter Questions**: Questions are simplified to avoid overwhelming users with details
+   - **Conflicting Input Handling**: AI intelligently handles conflicting inputs (e.g., "Top-order focus" + "Team A collapses early")
+   - **Match Insights Display**: Shows pitch/weather, past form, and venue data alongside questions
    - Stores responses in a `UserInsights` object and logs conversation history.
    - On completion, calls `onGenerate(strategyData, teamCount)` with:
      ```ts
      {
        strategy: 'ai-guided',
-       userInsights,          // matchWinner, scoreRange, backedPlayers, matchNarrative, riskAppetite
-       conversationHistory,    // full chat log
-       captainDistribution,    // generated in UI (2 combos with %)
-       matchAnalysis,         // optional server‐side pitch/weather analysis
-       teamNames              // { teamA, teamB }
+       userInsights: {          // Simplified insights structure
+         matchOutcome: string,   // Winner prediction with confidence
+         keyPlayers: string[],   // Core player preferences
+         riskAppetite: 'conservative' | 'balanced' | 'aggressive',
+         additionalContext?: string
+       },
+       conversationHistory,      // full chat log
+       matchInsights: {         // NEW: Match context display
+         pitch: string,
+         weather: string,
+         venue: string,
+         pastForm: Record<string, any>
+       },
+       captainDistribution,      // generated in UI (2 combos with %)
+       teamNames                 // { teamA, teamB }
      }
      ```
 
@@ -34,20 +51,22 @@
 
 ```mermaid
 flowchart LR
-  A[User Opens Chat UI] --> B[Answer Q1: Winner Prediction]
-  B --> C[Answer Q2: Score Range]
-  C --> D[Answer Q3: Backed Players]
-  D --> E[Answer Q4: Match Narrative]
-  E --> F[Answer Q5: Risk Appetite]
+  A[User Opens Chat UI] --> B[Answer Q1: Match Outcome Prediction]
+  B --> C[Answer Q2: Key Players Focus]
+  C --> D[Answer Q3: Risk Appetite]
+  D --> E[Optional Q4: Additional Context]
+  E --> F[Display Match Insights Alongside]
   F --> G[Collect UserInsights & conversationHistory]
-  G --> H[Click Generate Teams]
-  H --> I[POST /api/teams/generate]
+  G --> H[AI Handles Conflicting Inputs]
+  H --> I[Click Generate Teams]
+  I --> J[POST /api/teams/generate]
 ```
 
 **Diagram Explanation:**
-- The user interacts step-by-step with the chat UI (A → F).
-- Insights and full chat history are gathered (G).
-- A single button triggers the API call (H → I), passing structured preferences.
+- The user interacts with simplified questions (A → E).
+- Match insights are displayed throughout the process (F).
+- AI intelligently processes conflicting inputs (H).
+- A single button triggers the API call (I → J), passing structured preferences.
 
 ## 3. Backend Logic
 
@@ -93,9 +112,11 @@ flowchart LR
 
 4. **buildConversationalPrompt(insights, history)**
    - Constructs a free-form text prompt embedding:
-     - User insights (winner, score range, narrative, risk appetite)
-     - Full chat history
-     - Match conditions (pitch, weather)
+     - User insights (match outcome, key players, risk appetite, additional context)
+     - Full chat history with simplified conversation flow
+     - Match conditions (pitch, weather, venue)
+     - **NEW**: Past form analysis and conflict resolution context
+     - **NEW**: Intelligent handling of conflicting inputs (e.g., top-order focus vs early collapse)
 
 5. **parseAIRecommendations(aiResponse)**
    - Currently stubbed (returns empty array)

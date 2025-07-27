@@ -24,14 +24,14 @@ export async function GET(request: NextRequest) {
       matches = await neonDB.getActiveMatches();
       console.log(`✅ Found ${matches.length} matches in Neon DB`);
     } catch (dbError) {
-      console.warn('⚠️ Neon DB not available, falling back to SportRadar');
-      // Fallback to original SportRadar integration
+      console.warn('⚠️ Neon DB not available, falling back to mock data');
+      // Fallback to mock data integration
       matches = await dataIntegrationService.getAllMatches();
     }
 
     // Transform matches to the expected format
     const transformedMatches = matches.map(match => {
-      // Handle both Neon DB format and SportRadar format
+      // Handle both Neon DB format and generic format
       if ('team_name' in match) {
         // Neon DB format
         return {
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
           }
         };
       } else {
-        // SportRadar format (fallback)
+        // Generic format (fallback)
         return {
           id: match.id || Math.random().toString(),
           teams: match.competitors ? 

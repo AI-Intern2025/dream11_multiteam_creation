@@ -1,32 +1,43 @@
 # Strategy 3: Score & Storyline Prediction
 
 ## 1. Introduction
-**Strategy 3** uses match conditions and your own score predictions to drive an AI analysis, then generates diversified fantasy teams based on the analysis. It combines automated data-driven insights with user intuition for optimized line-ups.
+**Strategy 3** uses match conditions and your own score predictions to drive an AI analysis, then generates diversified fantasy teams based on the analysis. The strategy now uses **range inputs** instead of exact scores (e.g., "120-160 runs", "Under 120 runs"), displays **match insights** alongside predictions, and provides clear **team breakdown** with role distributions (BAT, AR, WK, BWL) for each generated team. It combines automated data-driven insights with user intuition for optimized line-ups.
 
 ## 2. User Workflow
 
 1. **Auto-Detected Match Conditions** (`components/strategies/Strategy3Wizard.tsx`, conditions step)
-   - Format, pitch, weather, venue loaded via `useMatchData(matchId)`.
-   - Click **Next: Make Predictions**.
+   - Format, pitch, weather, venue loaded via `useMatchData(matchId)`
+   - **Match Insights Display**: Insights such as pitch/weather and past form displayed on the same page as predictions to help guide team generation
+   - Click **Next: Make Predictions**
 
 2. **Make Your Predictions** (`predictions` step)
-   - For T20/ODI/Test: enter runs expected and wickets conceded or detailed innings predictions and top performers.
-   - Click **Next: AI Analysis** once all fields are complete.
+   - **Range Inputs**: Users select ranges instead of exact scores using intuitive selectors:
+     - "120-160 runs", "Under 120 runs", "160+ runs" for each team
+     - Pre-defined ranges: "Low (100-130)", "Medium (130-160)", "High (160+)"
+   - For T20/ODI/Test: enter expected run ranges and wicket ranges or detailed innings predictions and top performers
+   - **Match Context**: Weather, pitch, and venue information displayed alongside prediction inputs
+   - Click **Next: AI Analysis** once all fields are complete
 
 3. **AI Analysis** (`analysis` step)
-   - Invokes POST `/api/ai-analysis` with match conditions and `userPredictions`.
-   - AI returns structured analysis JSON (format, predictions, favoredRoles, corePlayerCount, strategy).
-   - Once analysis completes, UI advances to **Generation**.
+   - Invokes POST `/api/ai-analysis` with match conditions and `userPredictions` (now including ranges)
+   - AI returns structured analysis JSON incorporating range-based predictions
+   - **Enhanced Analysis**: AI considers range predictions for more nuanced team building
+   - Once analysis completes, UI advances to **Generation**
 
 4. **Generate Teams** (`generation` step)
-   - Select number of teams (1–50).
-   - Click **Generate X Teams** button.
+   - Select number of teams (1–50)
+   - **Team Breakdown Preview**: Shows expected role distributions (BAT, AR, WK, BWL) for each team
+   - Click **Generate X Teams** button
    - Calls:
      ```ts
      onGenerate({ 
        strategy: 'differential',
        aiAnalysis,
-       userPredictions,
+       userPredictions: {
+         team1Range: { min: 120, max: 160 },  // NEW: Range instead of exact
+         team2Range: { min: 100, max: 150 },
+         matchType: 'high-scoring' | 'low-scoring' | 'balanced'
+       },
        matchConditions: { format, pitch, weather, venue },
        team1Name,
        team2Name
@@ -36,17 +47,23 @@
 ### 2.1 Frontend Workflow Diagram
 ```mermaid
 flowchart LR
-  A[Load Match Conditions] --> B[Predictions Step]
-  B --> C[Submit Predictions]
+  A[Load Match Conditions & Insights] --> B[Predictions Step with Ranges]
+  B --> C[Submit Range Predictions]
   C --> D[POST /api/ai-analysis]
-  D --> E[Receive AI Analysis]
-  E --> F[Set Team Count]
-  F --> G["Generate Teams (onGenerate API Call)"]
+  D --> E[Receive Enhanced AI Analysis]
+  E --> F[Preview Team Breakdown by Role]
+  F --> G[Set Team Count]
+  G --> H["Generate Teams (onGenerate API Call)"]
 ```
 **Diagram Explanation:**
-- Steps A→B to present conditions and collect predictions.
-- C→D kicks off AI analysis; D→E stores analysis for generation.
-- F→G triggers final team-generation API call.
+- Steps A→B present conditions with match insights and collect range predictions
+- C→D kicks off AI analysis with range-based logic; D→E stores enhanced analysis
+- F→G shows role breakdown preview before final generation
+- G→H triggers final team-generation API call
+
+**Example Range Workflow:**
+- **User Input**: "India 120-160 runs, Pakistan 100-150 runs"
+- **AI Response**: Teams generated with heavier focus on Indian batsmen and Pakistani bowlers, considering the expected match flow and range uncertainty
 
 ## 3. Backend Logic
 

@@ -9,11 +9,12 @@ import { useMatchData } from '@/hooks/use-cricket-data';
 interface Strategy4WizardProps {
   matchId: string;
   onGenerate: (prefs: any, count: number) => void;
+  teamCount?: number;
 }
 
-export default function Strategy4Wizard({ matchId, onGenerate }: Strategy4WizardProps) {
+export default function Strategy4Wizard({ matchId, onGenerate, teamCount: initialTeamCount = 11 }: Strategy4WizardProps) {
   const { data: matchData } = useMatchData(matchId);
-  const [teamCount, setTeamCount] = useState(12);
+  const [teamCount, setTeamCount] = useState(initialTeamCount);
   const [stage, setStage] = useState<'selection' | 'captaincy' | 'summary'>('selection');
   
   const [selections, setSelections] = useState({

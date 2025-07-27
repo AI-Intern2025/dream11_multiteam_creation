@@ -1,6 +1,9 @@
 import { openAIService } from './openai';
 import { geminiService } from './gemini';
-import { SportRadarMatch, SportRadarPlayer } from './sportradar';
+import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { CricketMatch, CricketPlayer } from './cricket-types';
+
 import { MatchAnalysis } from './openai';
 
 type AIProvider = 'openai' | 'gemini';
@@ -31,8 +34,9 @@ class AIService {
   }
 
   async analyzeMatchData(
-    matchData: SportRadarMatch,
-    playerStats: SportRadarPlayer[],
+    matchData: CricketMatch,
+
+    playerStats: CricketPlayer[],
     weatherData: any,
     teamResults: any[],
     tournamentData: any
@@ -171,8 +175,8 @@ class AIService {
   }
 
   private getFallbackAnalysis(
-    matchData: SportRadarMatch,
-    playerStats: SportRadarPlayer[],
+    matchData: CricketMatch,
+    playerStats: CricketPlayer[],
     tournamentData?: any
   ): MatchAnalysis {
     const team1 = matchData.competitors[0]?.name || "Team 1";

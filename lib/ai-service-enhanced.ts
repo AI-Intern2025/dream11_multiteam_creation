@@ -1,7 +1,7 @@
 import { openAIService } from './openai';
 import { geminiService } from './gemini';
 import { neonDB, Player, Match } from './neon-db';
-import { SportRadarMatch, SportRadarPlayer } from './sportradar';
+import { CricketMatch, CricketPlayer } from './cricket-types';
 import { MatchAnalysis } from './openai';
 // Import preset strategy service for Strategy 6
 import { presetStrategyService } from './preset-strategy-service';
@@ -161,14 +161,12 @@ export interface TeamGenerationRequest {
       editIntensity: 'minor' | 'moderate' | 'major';
     };
   };
-  // For Strategy 1 AI-guided conversation
+  // For Strategy 1 AI-guided conversation - Enhanced with simplified structure
   userInsights?: {
-    matchWinner: string;
-    scoreRange: string;
-    backedPlayers: string[];
-    matchNarrative: string;
+    matchOutcome: string;
+    keyPlayers: string[];
     riskAppetite: string;
-    customInputs: string[];
+    additionalContext?: string;
   };
   conversationHistory?: Array<{
     sender: 'user' | 'ai' | 'system';
@@ -234,12 +232,22 @@ export class AIService {
       this.provider = 'openai';
       console.warn('⚠️  No AI API keys configured. Using fallback analysis.');
     }
+
+    // Log custom model information if using Gemini
+    if (this.provider === 'gemini') {
+      const modelInfo = geminiService.getModelInfo();
+      if (modelInfo.isCustomModel) {
+        console.log(`🎯 Custom Dream11 Model Active: ${modelInfo.customModelName || modelInfo.customModelId}`);
+      } else {
+        console.log('🤖 Using standard Gemini Pro model');
+      }
+    }
   }
 
-  // Legacy SportRadar integration methods
+  // Cricket data integration methods
   async analyzeMatchData(
-    matchData: SportRadarMatch,
-    playerStats: SportRadarPlayer[],
+    matchData: CricketMatch,
+    playerStats: CricketPlayer[],
     weatherData: any,
     teamResults: any[],
     tournamentData: any
@@ -426,6 +434,44 @@ export class AIService {
         userInsights: request.userInsights,
         teamCount: request.teamCount
       });
+
+      // 🎯 CUSTOM GEMINI MODEL INTEGRATION
+      // Use custom Dream11 MultiTeam Creator model when Gemini is the provider
+      if (this.provider === 'gemini' && process.env.GEMINI_API_KEY) {
+        const useDream11Gem = process.env.GEMINI_USE_DREAM11_GEM === 'true';
+        const gemName = process.env.DREAM11_GEM_NAME || 'Dream11 MultiTeam Creator';
+        const baseModel = process.env.GEMINI_BASE_MODEL || 'gemini-2.0-flash';
+        
+        console.log(`🎯 Using ${useDream11Gem ? 'Dream11 Gem' : 'Enhanced Standard'} (${gemName} on ${baseModel}) for strategy:`, request.strategy);
+        
+        try {
+          // Get match and player data
+          const matchData = await this.getMatchData(request.matchId);
+          const playerStats = await this.getPlayerStats(request.matchId);
+          
+          // Call Gemini model (Dream11 Gem or enhanced standard)
+          const customTeams = await geminiService.generateDream11Teams(
+            matchData,
+            playerStats,
+            request.userPreferences || request.userInsights,
+            request.teamCount
+          );
+
+          if (customTeams && customTeams.length > 0) {
+            console.log(`✅ ${useDream11Gem ? 'Dream11 Gem' : 'Enhanced model'} generated ${customTeams.length} teams successfully`);
+            // Convert model response to our AITeamAnalysis format
+            return this.convertCustomTeamsToAIAnalysis(customTeams, request.strategy);
+          } else {
+            console.log('⚠️  Custom model returned empty results, falling back to standard logic');
+          }
+        } catch (customModelError) {
+          console.error('❌ Custom Dream11 model failed:', customModelError);
+          console.log('🔄 Falling back to standard team generation logic...');
+        }
+      }
+
+      // 🔄 STANDARD STRATEGY HANDLING (Fallback or when not using custom model)
+      console.log('📋 Using standard strategy handling logic');
 
       // Handle same-xi strategy specially
       if (request.strategy === 'same-xi' && request.userPreferences?.players && request.userPreferences?.combos) {
@@ -1325,7 +1371,7 @@ export class AIService {
     return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
   }
 
-  private getFallbackAnalysis(matchData: SportRadarMatch): MatchAnalysis {
+  private getFallbackAnalysis(matchData: CricketMatch): MatchAnalysis {
     // Return a basic analysis structure when AI fails
     return {
       matchPrediction: {
@@ -3363,26 +3409,25 @@ export class AIService {
 
   private buildConversationalPrompt(insights: any, history: any[]): string {
     return `
-      Based on the following user predictions and insights, provide detailed team recommendations:
+      Based on the following user insights from our simplified conversational flow, provide detailed team recommendations:
 
-      User Match Predictions:
-      - Expected Match Winner: ${insights.matchWinner}
-      - Score Range Prediction: ${insights.scoreRange}
-      - Backed Key Players: ${insights.backedPlayers?.join(', ') || 'None specified'}
-      - Match Narrative: ${insights.matchNarrative}
+      User Match Insights:
+      - Match Outcome Prediction: ${insights.matchOutcome}
+      - Key Players Focus: ${insights.keyPlayers?.join(', ') || 'None specified'}
       - Risk Appetite: ${insights.riskAppetite}
+      - Additional Context: ${insights.additionalContext || 'None provided'}
 
       Conversation History:
       ${history.map(msg => `${msg.type}: ${msg.content}`).join('\n')}
 
-      Please analyze these insights and provide:
-      1. Player recommendations based on match winner prediction
-      2. Score-based strategy (high/low scoring match implications)
-      3. Key player prioritization based on user backing
-      4. Risk-adjusted team composition suggestions
-      5. Captain/Vice-captain recommendations aligned with predictions
+      Please analyze these simplified insights and provide:
+      1. Player recommendations based on match outcome prediction (${insights.matchOutcome})
+      2. Key player prioritization (Focus on: ${insights.keyPlayers?.join(', ') || 'balanced selection'})
+      3. Risk-adjusted team composition based on ${insights.riskAppetite} risk appetite
+      4. Captain/Vice-captain recommendations aligned with predictions
+      5. Team balance considerations for predicted match scenario
 
-      Format your response as structured recommendations for team selection.
+      Format your response as structured recommendations for team selection with clear reasoning.
     `;
   }
 
@@ -3512,33 +3557,33 @@ export class AIService {
   }
 
   private createInsightVariation(insights: any, index: number): any {
-    // Create diverse team variations based on user insights
+    // Create diverse team variations based on simplified user insights
     const variations: { [key: number]: any } = {
-      0: { // Conservative based on winner prediction
-        focus: 'winner-heavy',
+      0: { // Conservative based on match outcome prediction
+        focus: 'outcome-heavy',
         riskLevel: 'low',
-        captainBias: insights?.matchWinner || 'balanced',
+        captainBias: insights?.matchOutcome || 'balanced',
         playerBias: 'safe-picks',
         budgetStrategy: 'conservative'
       },
-      1: { // Backed players priority
-        focus: 'backed-players',
+      1: { // Key players priority
+        focus: 'key-players',
         riskLevel: 'medium',
-        priorityPlayers: insights?.backedPlayers || [],
+        priorityPlayers: insights?.keyPlayers || [],
         playerBias: 'user-favorites',
         budgetStrategy: 'balanced'
       },
-      2: { // Score-range optimized
-        focus: 'score-optimized',
+      2: { // Risk-appetite optimized
+        focus: 'risk-optimized',
         riskLevel: insights?.riskAppetite === 'Play it Safe' ? 'low' : 'medium',
-        scoreStrategy: insights?.scoreRange || 'balanced',
+        riskStrategy: insights?.riskAppetite || 'balanced',
         playerBias: 'form-based',
         budgetStrategy: 'aggressive'
       },
-      3: { // Narrative-driven differential
-        focus: 'narrative-driven',
+      3: { // Context-driven differential
+        focus: 'context-driven',
         riskLevel: 'high',
-        strategy: insights?.matchNarrative || 'balanced',
+        strategy: insights?.additionalContext || 'balanced',
         playerBias: 'differential',
         budgetStrategy: 'punt-heavy'
       },
@@ -3747,9 +3792,9 @@ export class AIService {
     const topRoles = ['BAT', 'AR', 'WK'];
     if (!topRoles.includes(player.player_role)) return false;
     
-    // Boost backed players for captaincy
-    if (userInsights?.backedPlayers?.some((backed: string) => 
-      player.player_name?.toLowerCase().includes(backed.toLowerCase())
+    // Boost key players for captaincy
+    if (userInsights?.keyPlayers?.some((keyPlayer: string) => 
+      player.player_name?.toLowerCase().includes(keyPlayer.toLowerCase())
     )) {
       return true;
     }
@@ -3767,23 +3812,25 @@ export class AIService {
     score += (player.dream_team_percentage || 0) * 0.2;
     score += (player.selection_percentage || 0) * 0.1;
     
-    // Boost for user-backed players
-    if (userInsights?.backedPlayers?.some((backed: string) => 
-      player.player_name?.toLowerCase().includes(backed.toLowerCase())
+    // Boost for user-identified key players
+    if (userInsights?.keyPlayers?.some((keyPlayer: string) => 
+      player.player_name?.toLowerCase().includes(keyPlayer.toLowerCase())
     )) {
       score *= 1.3;
     }
     
-    // Score range adjustments
-    if (userInsights?.scoreRange?.includes('High') && player.player_role === 'BAT') {
-      score *= 1.2;
-    } else if (userInsights?.scoreRange?.includes('Low') && ['BWL', 'AR'].includes(player.player_role)) {
-      score *= 1.2;
+    // Match outcome adjustments - favor players from predicted winning side
+    if (userInsights?.matchOutcome?.includes('Team 1') && player.team_name?.includes('Team 1')) {
+      score *= 1.15;
+    } else if (userInsights?.matchOutcome?.includes('Team 2') && player.team_name?.includes('Team 2')) {
+      score *= 1.15;
     }
     
-    // Match winner bias
-    if (userInsights?.matchWinner && player.team_name?.includes(userInsights.matchWinner)) {
-      score *= 1.15;
+    // Risk appetite adjustments
+    if (userInsights?.riskAppetite === 'Play it Safe' && (player.selection_percentage || 0) > 50) {
+      score *= 1.1; // Boost safe, popular picks
+    } else if (userInsights?.riskAppetite === 'Take Some Risks' && (player.selection_percentage || 0) < 30) {
+      score *= 1.2; // Boost differential picks for risk-takers
     }
     
     return score;
@@ -4031,6 +4078,146 @@ export class AIService {
     if (availablePrefCaptain && availablePrefCaptain.id !== team.captain.id) {
       team.captain = availablePrefCaptain;
     }
+  }
+
+  // ===== CUSTOM GEMINI MODEL HELPER METHODS =====
+
+  /**
+   * Get match data for custom model integration
+   */
+  private async getMatchData(matchId: number): Promise<any> {
+    try {
+      const match = await neonDB.getMatchById(matchId);
+      if (match) {
+        return {
+          id: match.id,
+          teams: match.team_name,
+          venue: match.match_venue,
+          format: match.match_format,
+          date: match.match_date,
+          time: match.start_time,
+          status: match.status
+        };
+      }
+    } catch (error) {
+      console.error('❌ Failed to get match data:', error);
+    }
+    
+    // Fallback data
+    return {
+      id: matchId,
+      teams: 'Team A vs Team B',
+      venue: 'Stadium',
+      format: 'T20',
+      date: new Date().toISOString().split('T')[0],
+      time: '19:30',
+      status: 'upcoming'
+    };
+  }
+
+  /**
+   * Get player statistics for custom model integration
+   */
+  private async getPlayerStats(matchId: number): Promise<any[]> {
+    try {
+      const players = await neonDB.getPlayingPlayersForMatch(matchId);
+      return players.map((player: Player) => ({
+        player_name: player.name,
+        team_name: player.team_name,
+        player_role: player.player_role,
+        credits: player.credits,
+        recent_points: player.points,
+        average_points: player.points,
+        selection_percentage: player.selection_percentage,
+        dream_team_percentage: player.dream_team_percentage
+      }));
+    } catch (error) {
+      console.error('❌ Failed to get player stats:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Convert custom Gemini model teams to AITeamAnalysis format
+   */
+  private convertCustomTeamsToAIAnalysis(customTeams: any[], strategy: string): AITeamAnalysis[] {
+    return customTeams.map((team, index) => {
+      const players: Player[] = team.players?.map((player: any) => ({
+        id: Math.floor(Math.random() * 10000),
+        name: player.name,
+        full_name: player.name,
+        team_name: player.team,
+        player_role: player.role,
+        credits: player.credits || 8.5,
+        selection_percentage: 25 + Math.random() * 50,
+        points: player.points || 35,
+        is_playing_today: true,
+        country: 'IND',
+        batting_style: 'Right Hand',
+        bowling_style: 'Right Arm Fast',
+        dream_team_percentage: 15 + Math.random() * 30
+      })) || [];
+
+      // Calculate role balance
+      const roleBalance = {
+        batsmen: players.filter(p => p.player_role === 'BAT').length,
+        bowlers: players.filter(p => p.player_role === 'BWL').length,
+        allRounders: players.filter(p => p.player_role === 'AR').length,
+        wicketKeepers: players.filter(p => p.player_role === 'WK').length
+      };
+
+      // Create captain as Player object
+      const captain: Player = {
+        id: Math.floor(Math.random() * 10000),
+        name: team.captain || team.players?.[0]?.name || 'Captain',
+        full_name: team.captain || team.players?.[0]?.name || 'Captain',
+        team_name: team.players?.find((p: any) => p.name === team.captain)?.team || 'Team A',
+        player_role: team.players?.find((p: any) => p.name === team.captain)?.role || 'BAT',
+        credits: 9.5,
+        selection_percentage: 60,
+        points: 50,
+        is_playing_today: true,
+        country: 'IND',
+        batting_style: 'Right Hand',
+        bowling_style: 'Right Arm Fast',
+        dream_team_percentage: 40
+      };
+
+      // Create vice-captain as Player object
+      const viceCaptain: Player = {
+        id: Math.floor(Math.random() * 10000),
+        name: team.viceCaptain || team.players?.[1]?.name || 'Vice Captain',
+        full_name: team.viceCaptain || team.players?.[1]?.name || 'Vice Captain',
+        team_name: team.players?.find((p: any) => p.name === team.viceCaptain)?.team || 'Team B',
+        player_role: team.players?.find((p: any) => p.name === team.viceCaptain)?.role || 'AR',
+        credits: 9.0,
+        selection_percentage: 45,
+        points: 45,
+        is_playing_today: true,
+        country: 'IND',
+        batting_style: 'Right Hand',
+        bowling_style: 'Right Arm Fast',
+        dream_team_percentage: 30
+      };
+
+      return {
+        players,
+        captain,
+        viceCaptain,
+        totalCredits: team.totalCredits || 99.5,
+        roleBalance,
+        riskScore: 0.6 + Math.random() * 0.4,
+        expectedPoints: team.expectedPoints || 400,
+        confidence: 0.8,
+        reasoning: team.strategy || `Generated by Dream11 MultiTeam Creator for ${strategy}`,
+        insights: [
+          `Generated using Dream11 MultiTeam Creator custom model`,
+          `Strategy: ${team.strategy || strategy}`,
+          `Expected points: ${team.expectedPoints || 400}`,
+          `Total credits used: ${team.totalCredits || 99.5}`
+        ]
+      };
+    });
   }
 }
 

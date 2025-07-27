@@ -8,7 +8,7 @@ export { default as Strategy4Wizard } from './Strategy4Wizard';
 export { default as Strategy5Wizard } from './Strategy5Wizard';
 export { default as Strategy6Wizard } from './Strategy6Wizard';
 export { default as Strategy7Wizard } from './Strategy7Wizard';
-export { default as Strategy8Wizard } from './Strategy8Wizard';
+export { default as Strategy8Wizard } from './Strategy8Wizard-Enhanced';
 
 // Strategy metadata for dynamic loading
 export const STRATEGIES = {

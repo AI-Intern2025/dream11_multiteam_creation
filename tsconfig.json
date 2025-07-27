@@ -13,15 +13,19 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+    "baseUrl": ".",
     "plugins": [
       {
         "name": "next"
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@/components/*": ["./components/*"],
+      "@/lib/*": ["./lib/*"],
+      "@/hooks/*": ["./hooks/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "types/**/*.d.ts"],
-  "exclude": ["node_modules", "scripts/test-advanced-ml-optimization.ts", "scripts/test-ml-optimization-simple.ts", "scripts/test-ml-quick.ts", "scripts/test-strategy5.ts", "test-strategy8.ts"]
+  "exclude": ["node_modules"]
 }

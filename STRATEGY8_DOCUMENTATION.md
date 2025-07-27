@@ -1,7 +1,7 @@
 # Strategy 8: Base Team + Rule-Based Edits
 
 ## 1. Introduction
-**Strategy 8** starts with a user-defined "base team" of 11 players, then systematically applies rule-based edits to generate multiple lineup variations. You control which metrics to optimize, set guardrails on composition, and choose edit intensity, while the AI ensures all Dream11 constraints and diversity across teams.
+**Strategy 8** starts with a user-defined "base team" of 11 players, then systematically applies rule-based edits to generate multiple lineup variations. Users can now define **guardrails for each role** (e.g., max 3 bowlers), and the system will show selected players for each role behind a click for better transparency. You control which metrics to optimize, set guardrails on composition, and choose edit intensity, while the AI ensures all Dream11 constraints and diversity across teams.
 
 ## 2. User Workflow
 
@@ -12,21 +12,38 @@
    - Click **Define Optimization Rules** once 11 players chosen.
 
 2. **Define Optimization Rules** (`*rules*` stage)
-   - **Primary Parameter**: Dream Team %, Selection %, or Average Points.
-   - **Guardrails**: maximum per-role (batsmen, bowlers, all-rounders, keepers), credit range (min/max).
-   - **Preferences**: bowling style, batting order bias, risk tolerance.
-   - **Edit Intensity**: minor (1–2 swaps), moderate (2–4), major (3–6).
-   - Click **Review Summary**.
+   - **Primary Parameter**: Dream Team %, Selection %, or Average Points
+   - **Guardrails for Each Role**: Users can define max limits for player roles (e.g., max 3 bowlers), and the system will show selected players for each role behind a click
+   - **Role-Specific Constraints**:
+     - Max Batsmen (3-6 range)
+     - Max Bowlers (3-5 range) 
+     - Max All-Rounders (1-3 range)
+     - Max Wicket-Keepers (1-2 range)
+   - **Enhanced Role Visibility**: Click on each role to see currently selected players and constraints
+   - **Credit Range**: minimum/maximum credit constraints per player
+   - **Preferences**: bowling style, batting order bias, risk tolerance
+   - **Edit Intensity**: minor (1–2 swaps), moderate (2–4), major (3–6)
+   - Click **Review Summary**
 
 3. **Review & Generate** (`*summary*` stage)
-   - Preview base team composition and optimization settings.
-   - Adjust **Number of Teams** (1–30).
+   - Preview base team composition and optimization settings
+   - **Role Breakdown Display**: Shows selected players categorized by role with constraint indicators
+   - **Guardrail Summary**: Displays all role-specific guardrails and their current status
+   - Adjust **Number of Teams** (1–30)
    - Click **Generate X Teams** → calls:
      ```ts
      onGenerate({
        strategy: 'base-edit',
        baseTeam,
-       optimizationRules,
+       optimizationRules: {
+         ...optimizationRules,
+         roleGuardrails: {              // NEW: Enhanced role constraints
+           batsmen: { max: 6, current: actualCount },
+           bowlers: { max: 3, current: actualCount },
+           allRounders: { max: 2, current: actualCount },
+           wicketKeepers: { max: 1, current: actualCount }
+         }
+       },
        teamNames: { team1, team2 },
        summary: generateSummary()
      }, teamCount);

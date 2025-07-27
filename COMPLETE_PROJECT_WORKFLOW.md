@@ -1,14 +1,14 @@
-# Dream11 Multi-Team Creator: 
+# Dream11 Multi-Team Creator: UPDATED Complete Project Workflow
 ---
 
 ## Table of Contents
 1. [Project Overview](#1-project-overview)
-2. [Overall User Journey](#2-overall-user-journey)
+2. [Updated Overall User Journey](#2-updated-overall-user-journey)
 3. [System Architecture](#3-system-architecture)
 4. [Complete Strategy Breakdown](#4-complete-strategy-breakdown)
 5. [How Multiple Teams Are Created](#5-how-multiple-teams-are-created)
-6. [Behind-the-Scenes Magic](#7-behind-the-scenes-magic)
-
+6. [New Functionalities and Features](#6-new-functionalities-and-features)
+7. [Behind-the-Scenes Magic](#7-behind-the-scenes-magic)
 
 ---
 
@@ -17,28 +17,51 @@
 The Dream11 Multi-Team Creator is a smart assistant that helps cricket fans create multiple fantasy cricket teams for the same match. Instead of manually picking players one by one for each team, users can choose from eight different "strategies" that automatically generate multiple unique lineups based on their preferences.
 
 **What makes it special:**
-- Creates up to 50 different teams at once
+- Creates up to **100** different teams at once (INCREASED from 50)
 - Each team follows Dream11 rules (exactly 11 players, under 100 credits)
 - Teams are guaranteed to be different from each other
 - Uses real cricket data and AI to make smart selections
 - Provides reasoning for every team created
+- **NEW**: OCR image recognition for team selection via screenshots
+- **NEW**: Enhanced feedback loop for post-creation review
+- **NEW**: Integration of Custom GPT model for improved AI-driven team generation
 
 ---
 
-## 2. Overall User Journey
+## 2. Updated Overall User Journey
 
 ```mermaid
 flowchart TD
     A[User Opens App] --> B[Login/Register]
     B --> C[Browse Available Matches]
     C --> D[Select a Cricket Match]
-    D --> E[Choose Generation Strategy 1-8]
-    E --> F[Complete Strategy Wizard]
-    F --> G[Set Number of Teams 1-50]
-    G --> H[Click Generate Teams]
-    H --> I[System Creates Teams]
-    I --> J[View All Generated Teams]
-    J --> K[Export/Use Teams in Dream11]
+    D --> E[Team Generation Setup]
+    E --> F{How Many Teams? 1-100}
+    F --> G[Choose Simplified Strategy 1-8]
+    G --> H{Strategy Type}
+    H -->|AI Chatbot| I[3-4 Focused Questions]
+    H -->|Score Prediction| J[Range-Based Score Input]
+    H -->|Stats Guardrails| K[Min/Max Statistical Filters]
+    H -->|Preset Scenarios| L[Choose Predefined Scenario]
+    H -->|Same XI Different C/VC| M[OCR Upload or Manual Selection]
+    H -->|Core-Hedge-Differential| N[Context-Persistent Categorization]
+    H -->|Role-Split| O[Exact Role Distribution Setup]
+    H -->|Base Team + Edits| P[Role Guardrails + Edit Rules]
+    I --> Q[Custom GPT Processing]
+    J --> Q
+    K --> Q
+    L --> Q
+    M --> Q
+    N --> Q
+    O --> Q
+    P --> Q
+    Q --> R[Generate Up to 100 Teams]
+    R --> S[Post-Generation Review & Verification]
+    S --> T{Teams Meet Requirements?}
+    T -->|No| U[Bulk Adjustments & Modifications]
+    U --> S
+    T -->|Yes| V[Export Teams - Multiple Formats]
+    V --> W[Use Teams in Dream11]
 ```
 
 ### Step-by-Step User Experience:
@@ -48,27 +71,41 @@ flowchart TD
 - Views a list of upcoming cricket matches (like Pakistan vs England)
 - Clicks on the match they want to create teams for
 
-**Step 2: Strategy Selection**
-- Eight strategy cards appear on screen, each with a different approach:
-  - "AI Chat Assistant" - Talk to AI about your preferences
-  - "Same Players, Different Captains" - Keep same 11, vary leadership
-  - "Score Prediction Based" - Teams optimized for predicted match scenario
-  - "Core + Backup Strategy" - Mix safe picks with risky ones
-  - "Numbers-Based Filters" - Use statistics to filter players
-  - "Ready-Made Scenarios" - Choose from pre-built strategies
-  - "Role-Specific Teams" - Control exact player positions
-  - "Modify My Base Team" - Start with your XI and create variations
+**Step 2: Enhanced Strategy Selection**
+- **How Many Teams?**: Users specify team count (1-**100** teams - INCREASED)
+- **Simplified Strategy Options**: Choose from 8 enhanced strategies:
+  1. **AI Chat Assistant**: 3-4 focused questions instead of 5 complex ones
+  2. **Score Prediction Based**: Range-based predictions (120-160 runs) instead of exact scores
+  3. **Numbers-Based Filters**: Min/max ranges with player/team level filtering
+  4. **Ready-Made Scenarios**: Predefined scenarios with post-generation verification
+  5. **Same Players, Different Captains**: OCR image upload + permutation-based distribution
+  6. **Core + Backup Strategy**: Context-persistent selections with captain/VC breakdown
+  7. **Role-Specific Teams**: Exact role distributions with pivot-table output
+  8. **Modify My Base Team**: Role-specific guardrails with edit intensity control
 
-**Step 3: Complete the Wizard**
-- Each strategy opens a simple step-by-step form
-- Users answer questions or make selections specific to that strategy
-- System validates inputs and shows preview
+**Step 3: Enhanced Strategy Completion**
+- Each strategy opens simplified, focused wizard
+- **Match Insights**: Real-time display of pitch, weather, venue data
+- **Context Persistence**: System remembers user preferences
+- **Intelligent Input Handling**: AI resolves conflicting user inputs
 
-**Step 4: Generate and Review**
-- User chooses how many teams to create (1-50)
-- Clicks "Generate Teams"
-- System creates all teams within seconds
-- Results show each team with captain badges, expected points, and reasoning
+**Step 4: Custom GPT Team Generation**
+- **Custom GPT Integration**: Advanced AI processing with human-readable reasoning
+- **Enhanced Validation**: All teams verified against Dream11 rules and user constraints
+- **Up to 100 Teams**: Massive scale generation with diversity guarantees
+- **Real-time Progress**: Live updates during generation process
+
+**Step 5: Post-Generation Review & Verification**
+- **Comprehensive Review Interface**: Detailed team analysis before export
+- **Constraint Verification**: Automatic checking against user preferences
+- **Bulk Modification Tools**: Easy adjustments across multiple teams
+- **Role Breakdown Display**: Clear BAT, AR, WK, BWL distributions
+
+**Step 6: Enhanced Export & Usage**
+- **Multiple Export Formats**: Excel, CSV, PDF with pivot tables
+- **Team Verification**: Final validation of Dream11 compliance
+- **Captain/VC Analytics**: Distribution reports and insights
+- **Direct Integration**: Seamless export for Dream11 platform usage
 
 ---
 
@@ -318,7 +355,56 @@ Base team + Moderate intensity, 4 teams:
 
 ---
 
-## 6. Behind-the-Scenes Magic
+## 6. New Functionalities and Features
+
+### Custom GPT Integration
+- **Human-readable Output**: All strategies now generate teams in Markdown format with natural language explanations
+- **Intelligent Reasoning**: GPT provides context-aware explanations for every team selection
+- **Constraint Awareness**: Custom model ensures all Dream11 rules are automatically followed
+- **Natural Language Processing**: Interprets user intent across all strategies intelligently
+
+### OCR Image Recognition (Strategy 2)
+- **Screenshot Upload**: Users can upload Dream11 team screenshots
+- **Automatic Player Detection**: AI recognizes player names from images
+- **Confidence Scoring**: System shows recognition accuracy for each detected player
+- **Manual Override**: Users can correct any misidentified players
+
+### Enhanced Post-Creation Features
+- **Comprehensive Review Interface**: Detailed analysis of all generated teams before export
+- **Bulk Modification Tools**: 
+  - Swap players across multiple teams simultaneously
+  - Mass captain/vice-captain changes
+  - Role-based bulk replacements
+- **Team Verification System**: Automatic validation against user constraints and Dream11 rules
+- **Performance Analytics**: Expected points, risk scores, and confidence metrics for each team
+
+### Advanced Statistical Controls
+- **Min/Max Range Sliders**: Define both minimum and maximum values for all statistical filters
+- **Player vs Team Level Filtering**: Choose whether filters apply to individual players or team averages
+- **Multi-Dimensional Constraints**: Combine multiple statistical criteria with AND/OR logic
+- **Dynamic Filter Adjustment**: Real-time preview of how filters affect player pool
+
+### Pivot-Based Output & Export
+- **Interactive Pivot Tables**: Teams displayed in spreadsheet-like format with sortable columns
+- **Role Distribution Visualization**: Clear breakdown of player roles across all teams
+- **Multiple Export Formats**: Excel, CSV, PDF with customizable layouts
+- **Print-Friendly Reports**: Formatted outputs suitable for offline analysis
+
+### Context Persistence & Memory
+- **Session Memory**: System remembers user preferences across multiple generation sessions
+- **Player Selection History**: Tracks frequently selected players and suggests them in future sessions
+- **Strategy Learning**: AI learns from user patterns to improve future recommendations
+- **Cross-Strategy Integration**: Insights from one strategy inform suggestions in others
+
+### Enhanced Match Intelligence
+- **Real-time Data Integration**: Live updates of player availability, weather, and pitch conditions
+- **Historical Performance Analysis**: Venue-specific player performance data
+- **Predictive Modeling**: AI-driven match outcome predictions based on current conditions
+- **Injury and Form Updates**: Real-time player fitness and form monitoring
+
+---
+
+## 7. Behind-the-Scenes Magic
 
 ### What Happens When You Click "Generate Teams"
 

@@ -12,6 +12,7 @@ import { useMatchData } from '@/hooks/use-cricket-data';
 interface Strategy7WizardProps {
   matchId: string;
   onGenerate: (prefs: any, count: number) => void;
+  teamCount?: number;
 }
 
 interface RoleSplitConfig {
@@ -37,7 +38,7 @@ interface RoleSplitConfig {
   diversityLevel: 'low' | 'medium' | 'high';
 }
 
-export default function Strategy7Wizard({ matchId, onGenerate }: Strategy7WizardProps) {
+export default function Strategy7Wizard({ matchId, onGenerate, teamCount: initialTeamCount = 11 }: Strategy7WizardProps) {
   const { data: matchData } = useMatchData(matchId);
   const [stage, setStage] = useState<'configure' | 'summary'>('configure');
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
@@ -49,7 +50,7 @@ export default function Strategy7Wizard({ matchId, onGenerate }: Strategy7Wizard
     pacers: 1,
     wicketKeepers: 1,
     allRounders: 1,
-    teamCount: 15,
+    teamCount: initialTeamCount,
     prioritizeForm: true,
     balanceCredits: true,
     diversityLevel: 'medium'
@@ -569,7 +570,7 @@ export default function Strategy7Wizard({ matchId, onGenerate }: Strategy7Wizard
             pacers: 1,
             wicketKeepers: 1,
             allRounders: 1,
-            teamCount: 15,
+            teamCount: initialTeamCount,
             prioritizeForm: true,
             balanceCredits: true,
             diversityLevel: 'medium'

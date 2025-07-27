@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { SportRadarMatch, SportRadarPlayer } from './sportradar';
+import { CricketMatch, CricketPlayer } from './cricket-types';
 
 export interface MatchAnalysis {
   matchPrediction: {
@@ -83,8 +83,8 @@ class OpenAIService {
   }
 
   async analyzeMatchData(
-    matchData: SportRadarMatch,
-    playerStats: SportRadarPlayer[],
+    matchData: CricketMatch,
+    playerStats: CricketPlayer[],
     weatherData: any,
     teamResults: any[],
     tournamentData: any
@@ -173,8 +173,8 @@ CRITICAL: You must respond with ONLY a valid JSON object. Do not include any exp
   }
 
   private buildComprehensiveAnalysisPrompt(
-    matchData: SportRadarMatch,
-    playerStats: SportRadarPlayer[],
+    matchData: CricketMatch,
+    playerStats: CricketPlayer[],
     weatherData: any,
     teamResults: any[],
     tournamentData: any
@@ -182,14 +182,14 @@ CRITICAL: You must respond with ONLY a valid JSON object. Do not include any exp
     // Significantly limit data to reduce token count
     const limitedPlayerStats = playerStats.slice(0, 3).map(player => ({
       name: player.name,
-      role: player.role,
-      team: player.team,
+      role: player.playing_role || 'Unknown',
+      team: 'Team', // Generic team assignment
       statistics: {
-        batting_average: player.statistics?.batting_average,
-        strike_rate: player.statistics?.strike_rate,
-        wickets_taken: player.statistics?.wickets_taken,
-        economy_rate: player.statistics?.economy_rate,
-        recent_form: player.statistics?.recent_form
+        batting_average: player.statistics?.batting?.average,
+        strike_rate: player.statistics?.batting?.strike_rate,
+        wickets_taken: player.statistics?.bowling?.wickets,
+        economy_rate: player.statistics?.bowling?.economy_rate,
+        recent_form: 'Good' // Default value
       }
     }));
     
@@ -212,7 +212,7 @@ CRITICAL: You must respond with ONLY a valid JSON object. Do not include any exp
         city: matchData.venue?.city_name,
         country: matchData.venue?.country_name
       },
-      competitors: matchData.competitors?.map(comp => ({
+      competitors: matchData.competitors?.map((comp: any) => ({
         name: comp.name,
         abbreviation: comp.abbreviation,
         country: comp.country
@@ -240,7 +240,7 @@ CRITICAL: You must respond with ONLY a valid JSON object. Do not include any exp
     };
 
     return `
-Analyze the following comprehensive cricket match data from SportRadar and provide detailed fantasy cricket insights:
+Analyze the following comprehensive cricket match data and provide detailed fantasy cricket insights:
 
 MATCH INFORMATION:
 ${JSON.stringify(essentialMatchData)}
@@ -342,8 +342,8 @@ Provide specific, actionable insights based on the data provided.
   }
 
   private getComprehensiveFallbackAnalysis(
-    matchData: SportRadarMatch,
-    playerStats: SportRadarPlayer[],
+    matchData: CricketMatch,
+    playerStats: CricketPlayer[],
     tournamentData?: any
   ): MatchAnalysis {
     const team1 = matchData.competitors[0]?.name || "Team 1";
@@ -351,10 +351,10 @@ Provide specific, actionable insights based on the data provided.
     
     // Extract some player names from the data
     const availablePlayers = playerStats.slice(0, 6);
-    const topBatsman = availablePlayers.find(p => (p.statistics?.batting_average || 0) > 30)?.name || "Top Batsman";
-    const topBowler = availablePlayers.find(p => (p.statistics?.wickets_taken || 0) > 10)?.name || "Top Bowler";
+    const topBatsman = availablePlayers.find(p => (p.statistics?.batting?.average || 0) > 30)?.name || "Top Batsman";
+    const topBowler = availablePlayers.find(p => (p.statistics?.bowling?.wickets || 0) > 10)?.name || "Top Bowler";
     const allRounder = availablePlayers.find(p => 
-      (p.statistics?.batting_average || 0) > 20 && (p.statistics?.wickets_taken || 0) > 5
+      (p.statistics?.batting?.average || 0) > 20 && (p.statistics?.bowling?.wickets || 0) > 5
     )?.name || "All-rounder";
 
     return {

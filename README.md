@@ -1,15 +1,13 @@
 # Multi Team Creation Assistant
 
-A comprehensive fantasy cricket platform powered by **SportRadar Cricket API** and **OpenAI** for intelligent team creation and analysis.
+A comprehensive fantasy cricket platform powered by **OpenAI/Gemini AI** for intelligent team creation and analysis, with comprehensive mock data for development and testing.
 
 ## 🏏 Features
 
-### **Professional Cricket Data Integration**
-- **SportRadar Cricket API**: Official cricket statistics and live data
-- **Real-time Match Data**: Live scores, lineups, and match conditions
-- **Comprehensive Player Stats**: Detailed batting, bowling, and fielding statistics
-- **Weather Integration**: Professional weather data and pitch analysis
-- **Tournament Context**: Competition details and standings
+### **Mock Data Integration**
+- **Comprehensive Mock Data**: Professional cricket data simulation for development
+- **Database Integration**: Neon PostgreSQL for data persistence
+- **Development-Friendly**: No external API dependencies for basic functionality
 
 ### **AI-Powered Analysis**
 - **OpenAI Integration**: Intelligent match and player analysis
@@ -38,29 +36,22 @@ A comprehensive fantasy cricket platform powered by **SportRadar Cricket API** a
 
 ### **Prerequisites**
 - Node.js 18+ and npm
-- SportRadar API account and key
-- OpenAI API account and key
+- OpenAI API account and key (optional)
+- Gemini API account and key (optional)
 
 ### **API Setup**
 
-#### **1. SportRadar Cricket API**
-1. Visit [SportRadar Developer Portal](https://developer.sportradar.com/)
-2. Sign up for a trial account (if you don't have one)
-3. Navigate to "My Account" → "Applications" 
-4. Create a new application or select existing one
-5. Copy your API key from the application details
-6. Add to `.env.local`: `SPORTRADAR_API_KEY=your_actual_api_key_here`
-
-**Important Notes:**
-- Make sure your API key is active and not expired
-- Trial accounts have limited requests per day
-- Ensure your key has access to Cricket API endpoints
-- Remove any extra spaces or characters from the API key
-
-#### **2. OpenAI API**
+#### **1. OpenAI API (Optional)**
 1. Visit [OpenAI Platform](https://platform.openai.com/)
 2. Create an account and generate an API key
 3. Add to `.env.local`: `OPENAI_API_KEY=your_api_key_here`
+
+#### **2. Gemini API (Optional)**
+1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Create an account and generate an API key
+3. Add to `.env.local`: `GEMINI_API_KEY=your_api_key_here`
+
+**Note:** The application works with mock data even without API keys configured.
 
 ### **Installation**
 ```bash
@@ -81,29 +72,25 @@ npm run dev
 
 ### **Environment Variables**
 ```env
-# Required
-SPORTRADAR_API_KEY=your_sportradar_api_key_here
-OPENAI_API_KEY=your_openai_api_key_here
-
 # Optional
-WEATHER_API_KEY=your_weather_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Database (Optional)
+DATABASE_URL=your_neon_database_connection_string_here
 ```
 
-## 📊 SportRadar API Integration
+## 📊 Mock Data Integration
 
-### **Key Endpoints Used**
-- `/schedules/{date}/schedule.json` - Daily match schedules
-- `/matches/{id}/summary.json` - Detailed match information
-- `/matches/{id}/lineups.json` - Official team lineups
-- `/players/{id}/profile.json` - Comprehensive player statistics
-- `/matches/{id}/weather_info.json` - Weather and pitch conditions
-- `/competitors/{id}/results.json` - Team performance history
-- `/tournaments/{id}/info.json` - Tournament details
+### **Development-First Approach**
+- Comprehensive mock cricket data for all match scenarios
+- No external API dependencies required for development
+- Professional-grade fantasy cricket data simulation
 
 ### **Data Processing Flow**
-1. **Fetch**: Retrieve comprehensive match data from SportRadar
+1. **Generate**: Create realistic match data with mock data providers
 2. **Enrich**: Combine match, player, weather, and team data
-3. **Analyze**: Process data through OpenAI for insights
+3. **Analyze**: Process data through AI services for insights (optional)
 4. **Generate**: Create optimized teams using AI strategies
 5. **Present**: Display insights and recommendations
 
@@ -199,13 +186,13 @@ Interactive assistant providing real-time advice based on:
 
 ### **Backend**
 - **Next.js API Routes**: Serverless API endpoints
-- **SportRadar Integration**: Professional cricket data
+- **Mock Data Integration**: Comprehensive cricket data simulation
 - **OpenAI Integration**: AI-powered analysis
 - **Intelligent Caching**: Optimized data retrieval
 
 ### **Data Flow**
 ```
-SportRadar API → Data Integration Service → OpenAI Analysis → Strategy Engine → UI Components
+Mock Data / Database → Data Integration Service → AI Analysis → Strategy Engine → UI Components
 ```
 
 ## 🔧 Development
@@ -217,7 +204,7 @@ SportRadar API → Data Integration Service → OpenAI Analysis → Strategy Eng
 │   ├── match/             # Match-specific pages
 │   └── components/        # React components
 ├── lib/                   # Core libraries
-│   ├── sportradar.ts      # SportRadar API integration
+│   ├── cricket-types.ts   # Generic cricket data interfaces
 │   ├── openai.ts          # OpenAI analysis service
 │   └── data-integration.ts # Data processing service
 ├── hooks/                 # Custom React hooks
@@ -225,9 +212,8 @@ SportRadar API → Data Integration Service → OpenAI Analysis → Strategy Eng
 ```
 
 ### **Key Services**
-- **SportRadarService**: API client for cricket data
-- **OpenAIService**: AI analysis and insights
-- **DataIntegrationService**: Data processing and caching
+- **DataIntegrationService**: Mock data processing and caching
+- **OpenAIService/GeminiService**: AI analysis and insights
 - **Team Generation**: Strategy-based team creation
 
 ## 📝 API Documentation
@@ -239,8 +225,8 @@ SportRadar API → Data Integration Service → OpenAI Analysis → Strategy Eng
 - `POST /api/chatbot` - AI chatbot interactions
 
 ### **Data Models**
-- **SportRadarMatch**: Complete match information
-- **SportRadarPlayer**: Player profiles and statistics
+- **CricketMatch**: Complete match information
+- **CricketPlayer**: Player profiles and statistics
 - **MatchAnalysis**: AI-generated insights
 - **EnrichedMatchData**: Combined data for analysis
 
@@ -265,7 +251,7 @@ For support and questions:
 
 ---
 
-**Powered by SportRadar Cricket API and OpenAI for the most comprehensive fantasy cricket experience available.**
+**Powered by AI and comprehensive mock data for the most accessible fantasy cricket development experience.**
 
 # 🏏 Multi Team Creation Assistant — Detailed Project Workflow
 
@@ -443,7 +429,7 @@ Below is the comprehensive end‑to‑end workflow for both Admin and User sides
 ## 📦 4. TECHNOLOGY & COMPONENTS
 
 - **Frontend:** Next.js + Tailwind (black/white/red theme), PWA  
-- **Backend:** Next.js API Routes + External APIs (SportRadar, OpenAI, Gemini)
+- **Backend:** Next.js API Routes + External APIs (OpenAI, Gemini)
 - **AI Modules:** Chatbot (Pre‑Match), Summarizer (Teams Created), Tracker (Performance)  
 - **Data Flow:**  
   - Admin → publish match & player data  
