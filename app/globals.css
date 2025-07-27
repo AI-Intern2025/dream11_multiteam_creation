@@ -9,26 +9,50 @@
 
 @layer base {
   :root {
-    --background: 8 8 12;          /* Very dark navy/black like Dream11 */
-    --foreground: 255 255 255;      /* Pure white text */
-    --card: 15 15 20;              /* Slightly lighter dark cards */
-    --card-foreground: 255 255 255;
-    --popover: 15 15 20;
-    --popover-foreground: 255 255 255;
-    --primary: 239 68 68;          /* Dream11 Red */
-    --primary-foreground: 255 255 255;
-    --secondary: 30 30 35;         /* Dark gray */
-    --secondary-foreground: 255 255 255;
-    --muted: 39 39 42;            /* Zinc-800 equivalent */
-    --muted-foreground: 161 161 170; /* Zinc-400 equivalent */
-    --accent: 34 197 94;          /* Dream11 Green */
-    --accent-foreground: 255 255 255;
-    --destructive: 239 68 68;
-    --destructive-foreground: 255 255 255;
-    --border: 39 39 42;           /* Subtle borders */
-    --input: 24 24 27;            /* Dark input backgrounds */
-    --ring: 239 68 68;            /* Red focus rings */
-    --radius: 8px;                /* Slightly larger radius */
+    /* Light Mode Colors - Professional Blue Theme */
+    --background: 248 249 250;      /* #F8F9FA - very light gray */
+    --foreground: 33 37 41;         /* #212529 - dark charcoal */
+    --card: 255 255 255;            /* #FFFFFF - pure white */
+    --card-foreground: 33 37 41;    /* #212529 - dark charcoal */
+    --popover: 255 255 255;          /* #FFFFFF - pure white */
+    --popover-foreground: 33 37 41; /* #212529 - dark charcoal */
+    --primary: 0 123 255;           /* #007BFF - professional blue */
+    --primary-foreground: 255 255 255; /* #FFFFFF - white */
+    --secondary: 108 117 125;       /* #6C757D - cool gray */
+    --secondary-foreground: 255 255 255; /* #FFFFFF - white */
+    --muted: 233 236 239;           /* #E9ECEF - light gray */
+    --muted-foreground: 108 117 125; /* #6C757D - cool gray */
+    --accent: 51 153 255;           /* #3399FF - lighter blue */
+    --accent-foreground: 255 255 255; /* #FFFFFF - white */
+    --destructive: 220 53 69;       /* #DC3545 - standard red */
+    --destructive-foreground: 255 255 255; /* #FFFFFF - white */
+    --border: 222 226 230;          /* #DEE2E6 - light gray */
+    --input: 255 255 255;           /* #FFFFFF - white */
+    --ring: 0 123 255;              /* #007BFF - professional blue */
+    --radius: 8px;
+  }
+
+  .dark {
+    /* Dark Mode Colors - Professional Blue Theme */
+    --background: 10 25 47;         /* #0A192F - deep navy */
+    --foreground: 204 214 246;      /* #CCD6F6 - light blue-gray text */
+    --card: 17 34 64;               /* #112240 - darker navy */
+    --card-foreground: 204 214 246; /* #CCD6F6 - light blue-gray text */
+    --popover: 17 34 64;            /* #112240 - darker navy */
+    --popover-foreground: 204 214 246; /* #CCD6F6 - light blue-gray text */
+    --primary: 51 153 255;          /* #3399FF - bright blue */
+    --primary-foreground: 255 255 255; /* #FFFFFF - white */
+    --secondary: 136 146 176;       /* #8892B0 - slate gray */
+    --secondary-foreground: 255 255 255; /* #FFFFFF - white */
+    --muted: 35 53 84;              /* #233554 - dark slate */
+    --muted-foreground: 136 146 176; /* #8892B0 - slate gray */
+    --accent: 100 255 218;          /* #64FFDA - bright teal/cyan accent */
+    --accent-foreground: 10 25 47;  /* #0A192F - deep navy */
+    --destructive: 255 107 107;     /* #FF6B6B - lighter red */
+    --destructive-foreground: 10 25 47; /* #0A192F - deep navy */
+    --border: 35 53 84;             /* #233554 - dark slate */
+    --input: 17 34 64;              /* #112240 - darker navy */
+    --ring: 51 153 255;             /* #3399FF - bright blue */
   }
 }
 
@@ -42,136 +66,360 @@
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-feature-settings: 'cv11', 'ss01';
     font-variation-settings: 'opsz' 32;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
   
   h1, h2, h3, h4, h5, h6 {
-    @apply font-bold;
+    @apply font-semibold;
     font-variation-settings: 'opsz' 32;
   }
 }
 
 @layer components {
+  /* Professional Blue Theme Components */
   .dream11-gradient-bg {
-    background: linear-gradient(135deg, 
-      rgb(8, 8, 12) 0%, 
-      rgb(15, 15, 20) 50%, 
-      rgb(8, 8, 12) 100%);
+    @apply bg-background;
+    background-image: 
+      radial-gradient(circle at 20% 80%, rgba(0, 123, 255, 0.05) 0%, transparent 50%),
+      radial-gradient(circle at 80% 20%, rgba(108, 117, 125, 0.05) 0%, transparent 50%);
   }
 
   .dream11-header {
-    background: linear-gradient(90deg, 
-      rgba(239, 68, 68, 0.9) 0%, 
-      rgba(220, 38, 127, 0.9) 50%, 
-      rgba(239, 68, 68, 0.9) 100%);
-    backdrop-filter: blur(10px);
+    @apply bg-card/95 backdrop-blur-md border-b border-border;
+    background-image: linear-gradient(135deg, 
+      rgba(0, 123, 255, 0.03) 0%, 
+      rgba(108, 117, 125, 0.03) 50%, 
+      transparent 100%);
   }
 
   .dream11-card {
-    @apply bg-card/60 backdrop-blur-sm border-border/50 rounded-lg;
+    @apply bg-card backdrop-blur-sm border border-border rounded-xl shadow-md;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .dream11-card:hover {
-    @apply bg-card/80 border-primary/30 shadow-2xl;
+    @apply shadow-lg scale-[1.02];
+    transform: translateY(-4px) scale(1.02);
+    border-color: rgb(var(--primary) / 0.5);
+    box-shadow: 0 10px 30px rgba(0, 123, 255, 0.1);
+  }
+
+  /* Modern Button Styles */
+  .btn-primary {
+    @apply bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 px-6 rounded-lg;
+    background: linear-gradient(135deg, rgb(var(--primary)) 0%, rgba(0, 123, 255, 0.8) 100%);
+    box-shadow: 0 4px 15px rgba(0, 123, 255, 0.2);
+    transition: all 0.3s ease;
+  }
+
+  .btn-primary:hover {
     transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 123, 255, 0.3);
+  }
+
+  .btn-secondary {
+    @apply bg-secondary hover:bg-secondary/80 text-secondary-foreground font-medium py-2 px-4 rounded-lg;
+    border: 1px solid rgb(var(--border));
+    transition: all 0.2s ease;
+  }
+
+  /* Enhanced Card Effects */
+  .stats-card {
+    @apply dream11-card p-6;
+    border: 1px solid rgb(var(--border));
   }
 
   .match-card {
-    @apply dream11-card p-6 relative overflow-hidden;
+    @apply dream11-card p-6;
+    border: 1px solid rgb(var(--border));
   }
 
-  .match-card::before {
+  .match-card:hover {
+    border-color: rgba(0, 123, 255, 0.5);
+    box-shadow: 0 10px 40px rgba(0, 123, 255, 0.1);
+  }
+
+  /* Improved Search Input */
+  .search-input {
+    @apply bg-input border border-border rounded-lg px-4 py-3 text-foreground;
+    transition: all 0.2s ease;
+  }
+
+  .search-input:focus {
+    @apply ring-2 ring-primary border-primary;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+  }
+
+  /* Loading Animation */
+  .loading-shimmer {
+    @apply bg-card border border-border rounded-xl p-8;
+  }
+
+  /* Format Badges */
+  .format-t20 {
+    background: rgba(0, 123, 255, 0.1);
+    color: rgb(0, 123, 255);
+    border: 1px solid rgba(0, 123, 255, 0.2);
+  }
+
+  .format-odi {
+    background: rgba(108, 117, 125, 0.1);
+    color: rgb(108, 117, 125);
+    border: 1px solid rgba(108, 117, 125, 0.2);
+  }
+
+  .format-test {
+    background: rgba(33, 37, 41, 0.1);
+    color: rgb(33, 37, 41);
+    border: 1px solid rgba(33, 37, 41, 0.2);
+  }
+
+  /* Status Badges */
+  .status-live {
+    background: rgba(220, 53, 69, 0.1);
+    color: rgb(220, 53, 69);
+    border: 1px solid rgba(220, 53, 69, 0.2);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .status-scheduled {
+    background: rgba(108, 117, 125, 0.1);
+    color: rgb(108, 117, 125);
+    border: 1px solid rgba(108, 117, 125, 0.2);
+  }
+
+  /* Glass Effect */
+  .glass-effect {
+    backdrop-filter: blur(12px);
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+  }
+  
+  .dark .glass-effect {
+    background: rgba(17, 34, 64, 0.7);
+    border: 1px solid rgba(35, 53, 84, 0.8);
+  }
+
+  /* Gradient Text */
+  .gradient-text {
+    background: linear-gradient(135deg, rgb(var(--primary)) 0%, rgb(var(--accent)) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Additional Dream11 Card Effects */
+  .player-card {
+    @apply dream11-card p-4 relative overflow-hidden;
+  }
+
+  .player-card::before {
     content: '';
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, transparent, rgb(239, 68, 68), transparent);
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgb(var(--primary)), transparent);
+    opacity: 0;
+    transition: opacity 0.2s ease;
   }
 
-  .btn-primary {
-    @apply bg-gradient-to-r from-primary to-red-600 text-white font-semibold py-3 px-6 rounded-lg;
-    @apply hover:from-red-600 hover:to-primary transition-all duration-300;
-    @apply shadow-lg hover:shadow-xl transform hover:scale-105;
-  }
-
-  .btn-secondary {
-    @apply bg-gradient-to-r from-accent to-green-600 text-white font-semibold py-2 px-4 rounded-lg;
-    @apply hover:from-green-600 hover:to-accent transition-all duration-300;
-  }
-
-  .search-input {
-    @apply bg-input/80 backdrop-blur-sm border-border/50 rounded-lg px-4 py-3;
-    @apply focus:bg-input focus:border-primary/50 focus:ring-2 focus:ring-primary/20;
-    @apply transition-all duration-300;
-  }
-
-  .stats-card {
-    @apply dream11-card p-4 text-center;
-    background: linear-gradient(135deg, rgba(15, 15, 20, 0.8), rgba(30, 30, 35, 0.6));
-  }
-
-  .format-badge {
-    @apply inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide;
-  }
-
-  .format-t20 {
-    @apply format-badge bg-orange-500/20 text-orange-300 border border-orange-500/30;
-  }
-
-  .format-odi {
-    @apply format-badge bg-blue-500/20 text-blue-300 border border-blue-500/30;
-  }
-
-  .format-test {
-    @apply format-badge bg-purple-500/20 text-purple-300 border border-purple-500/30;
-  }
-
-  .status-live {
-    @apply format-badge bg-red-500/20 text-red-300 border border-red-500/30 animate-pulse;
-  }
-
-  .status-scheduled {
-    @apply format-badge bg-green-500/20 text-green-300 border border-green-500/30;
-  }
-
-  .glass-effect {
-    @apply backdrop-blur-md bg-white/5 border border-white/10;
+  .player-card:hover::before {
+    opacity: 1;
   }
 }
 
-/* Custom scrollbar */
+/* Additional Utility Classes */
+.input-field {
+  @apply bg-input border border-border rounded-md px-3 py-2;
+  @apply focus:border-primary/50 focus:ring-2 focus:ring-primary/20;
+  @apply transition-all duration-200;
+}
+
+.progress-bar {
+    @apply bg-muted rounded-full overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply bg-primary h-full transition-all duration-300 ease-out;
+    background-image: linear-gradient(90deg, 
+      rgba(255, 255, 255, 0.2) 0%, 
+      transparent 50%, 
+      rgba(255, 255, 255, 0.2) 100%);
+  }
+
+  /* Role Badge Styles */
+  .role-wk {
+    @apply bg-blue-500/20 text-blue-600 border border-blue-500/30;
+  }
+
+  .role-bat {
+    @apply bg-green-500/20 text-green-600 border border-green-500/30;
+  }
+
+  .role-ar {
+    @apply bg-purple-500/20 text-purple-600 border border-purple-500/30;
+  }
+
+  .role-bowl {
+    @apply bg-orange-500/20 text-orange-600 border border-orange-500/30;
+  }
+
+  .dark .role-wk {
+    @apply text-blue-400;
+  }
+
+  .dark .role-bat {
+    @apply text-green-400;
+  }
+
+  .dark .role-ar {
+    @apply text-purple-400;
+  }
+
+  .dark .role-bowl {
+    @apply text-orange-400;
+  }
+
+  /* Captain/Vice-Captain Badges */
+  .captain-badge {
+    @apply bg-primary text-primary-foreground rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold;
+  }
+
+  .vice-captain-badge {
+    @apply bg-secondary text-secondary-foreground rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold;
+  }
+
+  /* Team Status Indicators */
+  .team-complete {
+    @apply bg-primary/10 border-primary/30 text-primary;
+  }
+
+  .team-incomplete {
+    @apply bg-muted border-border text-muted-foreground;
+  }
+
+  /* Selection States */
+  .player-selected {
+    @apply bg-primary/5 border-primary/30;
+  }
+
+  .player-selected::before {
+    opacity: 1;
+  }
+
+  /* Add/Remove Button States */
+  .add-player-btn {
+    @apply btn-primary text-sm py-1 px-3;
+  }
+
+  .remove-player-btn {
+    @apply bg-destructive text-destructive-foreground text-sm py-1 px-3;
+    @apply hover:bg-destructive/90;
+  }
+
+  /* Theme Toggle */
+  .theme-toggle {
+    @apply bg-muted hover:bg-muted/80 border border-border rounded-md p-2;
+    @apply transition-all duration-200;
+  }
+
+  /* Data Text Styling */
+  .data-text {
+    @apply text-muted-foreground text-sm;
+  }
+
+  .credit-text {
+    @apply font-medium text-foreground;
+  }
+
+  .percentage-text {
+    @apply text-muted-foreground text-xs;
+  }
+
+  /* Animation Classes */
+  .slide-in {
+    animation: slideIn 0.3s ease-out;
+  }
+
+  .fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+
+/* Keyframe Animations */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(39, 39, 42);
+  background: rgb(var(--muted));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(239, 68, 68);
-  border-radius: 4px;
+  background: rgb(var(--primary));
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(220, 38, 127);
+  background: rgb(var(--primary) / 0.8);
 }
 
-/* Smooth focus transitions */
+/* Focus and interaction states */
 input:focus, select:focus, button:focus {
   outline: none;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
 }
 
-/* Loading animation */
-@keyframes shimmer {
-  0% { opacity: 1; }
+/* Loading states */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
-  100% { opacity: 1; }
 }
 
-.loading-shimmer {
-  animation: shimmer 2s ease-in-out infinite;
+.loading-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Responsive design helpers */
+@media (max-width: 768px) {
+  .dream11-card {
+    @apply rounded-md;
+  }
+  
+  .btn-primary, .btn-secondary {
+    @apply text-sm py-2 px-3;
+  }
 }

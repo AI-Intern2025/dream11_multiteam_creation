@@ -25,6 +25,7 @@ import {
 import Link from 'next/link';
 import { useCricketMatches } from '@/hooks/use-cricket-data';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 export default function Home() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -43,9 +44,9 @@ export default function Home() {
   if (isLoading) {
     return (
       <div className="min-h-screen dream11-gradient-bg flex items-center justify-center">
-        <div className="flex items-center space-x-3 text-white">
+        <div className="flex items-center space-x-3 text-foreground">
           <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-          <span className="text-xl font-semibold">Loading Your Experience...</span>
+          <span className="text-xl font-semibold gradient-text">Loading Your Experience...</span>
         </div>
       </div>
     );
@@ -118,9 +119,9 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen dream11-gradient-bg">
-      {/* Dream11 Inspired Header */}
-      <header className="dream11-header shadow-2xl sticky top-0 z-50">
+    <div className="min-h-screen dream11-gradient-bg transition-colors duration-300">
+      {/* Modern Header */}
+      <header className="dream11-header shadow-lg sticky top-0 z-50">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <motion.div 
@@ -129,12 +130,12 @@ export default function Home() {
               transition={{ duration: 0.6 }}
               className="flex items-center space-x-4"
             >
-              <div className="bg-white/20 p-2 rounded-lg backdrop-blur-sm">
+              <div className="bg-gradient-to-br from-primary to-accent p-3 rounded-xl shadow-lg">
                 <Trophy className="h-8 w-8 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">MultiTeam Creator</h1>
-                <p className="text-white/80 text-sm">Fantasy Cricket Platform</p>
+                <h1 className="text-2xl font-bold gradient-text">MultiTeam Creator</h1>
+                <p className="text-muted-foreground text-sm">Fantasy Cricket Platform</p>
               </div>
             </motion.div>
             
@@ -144,22 +145,24 @@ export default function Home() {
               transition={{ duration: 0.6 }}
               className="flex items-center space-x-4"
             >
-              <div className="text-right text-white hidden sm:block">
+              <div className="text-right text-foreground hidden sm:block">
                 <span className="text-sm font-semibold block">Welcome, {user?.username}</span>
-                <span className="text-xs text-white/70 capitalize">{user?.role} Account</span>
+                <span className="text-xs text-muted-foreground capitalize">{user?.role} Account</span>
               </div>
               
               {isAdmin && (
                 <Link href="/admin">
-                  <Button className="glass-effect text-white hover:bg-white/20 border-white/20">
+                  <Button className="glass-effect hover:bg-white/20 text-foreground font-medium">
                     Admin Panel
                   </Button>
                 </Link>
               )}
               
+              <ThemeToggle />
+              
               <Button 
                 onClick={handleLogout}
-                className="glass-effect text-white hover:bg-white/20 border-white/20"
+                className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-medium"
               >
                 <LogOut className="h-4 w-4 mr-2" />
                 <span className="hidden sm:inline">Logout</span>
@@ -202,9 +205,9 @@ export default function Home() {
                     size="icon"
                     onClick={refetch}
                     disabled={loading}
-                    className="h-12 w-12 glass-effect border-border/50 hover:bg-white/10"
+                    className="h-12 w-12 glass-effect hover:bg-white/20"
                   >
-                    <RefreshCw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-5 w-5 text-muted-foreground ${loading ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
               </div>
@@ -213,9 +216,9 @@ export default function Home() {
                 <motion.div 
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg"
+                  className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg"
                 >
-                  <p className="text-red-400 text-sm font-medium">
+                  <p className="text-destructive text-sm font-medium">
                     <strong>Connection Error:</strong> {error}. Using offline data.
                   </p>
                 </motion.div>
@@ -230,7 +233,7 @@ export default function Home() {
                 <Calendar className="h-6 w-6 text-primary" />
                 <Badge className="bg-primary/20 text-primary border-primary/30">Live</Badge>
               </div>
-              <div className="text-3xl font-bold text-white mb-1">{matches.length}</div>
+              <div className="text-3xl font-bold gradient-text mb-1">{matches.length}</div>
               <div className="text-sm text-muted-foreground">Active Matches</div>
             </div>
             
@@ -239,25 +242,25 @@ export default function Home() {
                 <Zap className="h-6 w-6 text-accent" />
                 <Badge className="bg-accent/20 text-accent border-accent/30">AI</Badge>
               </div>
-              <div className="text-3xl font-bold text-white mb-1">8</div>
+              <div className="text-3xl font-bold gradient-text mb-1">8</div>
               <div className="text-sm text-muted-foreground">Strategies</div>
             </div>
             
             <div className="stats-card">
               <div className="flex items-center justify-between mb-3">
-                <Users className="h-6 w-6 text-blue-400" />
-                <Badge className="bg-blue-400/20 text-blue-400 border-blue-400/30">Teams</Badge>
+                <Users className="h-6 w-6 text-blue-500" />
+                <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">Teams</Badge>
               </div>
-              <div className="text-3xl font-bold text-white mb-1">100+</div>
+              <div className="text-3xl font-bold gradient-text mb-1">100+</div>
               <div className="text-sm text-muted-foreground">Per Match</div>
             </div>
             
             <div className="stats-card">
               <div className="flex items-center justify-between mb-3">
                 <Star className="h-6 w-6 text-yellow-500" />
-                <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Pro</Badge>
+                <Badge className="bg-yellow-500/20 text-yellow-500 border-yellow-500/30">Pro</Badge>
               </div>
-              <div className="text-3xl font-bold text-white mb-1">95%</div>
+              <div className="text-3xl font-bold gradient-text mb-1">95%</div>
               <div className="text-sm text-muted-foreground">Success Rate</div>
             </div>
           </motion.div>
@@ -267,7 +270,7 @@ export default function Home() {
             <motion.div variants={itemVariants} className="text-center py-20">
               <div className="loading-shimmer">
                 <RefreshCw className="h-16 w-16 text-primary mx-auto mb-6 animate-spin" />
-                <div className="text-2xl font-bold text-white mb-3">Loading Cricket Data...</div>
+                <div className="text-2xl font-bold gradient-text mb-3">Loading Cricket Data...</div>
                 <p className="text-muted-foreground text-lg">Fetching latest matches and insights</p>
               </div>
             </motion.div>
@@ -300,7 +303,7 @@ export default function Home() {
                       </div>
 
                       <div className="text-center mb-6">
-                        <h3 className="text-xl font-bold text-white mb-3 leading-tight">
+                        <h3 className="text-xl font-bold text-foreground mb-3 leading-tight">
                           {match.teams}
                         </h3>
                         <div className="flex items-center justify-center text-muted-foreground text-sm mb-2">
@@ -317,7 +320,7 @@ export default function Home() {
 
                       <Link href={`/match/${match.id}`}>
                         <Button className="btn-primary w-full group">
-                          <span className="font-semibold">CREATE TEAMS</span>
+                          <span>CREATE TEAMS</span>
                           <ChevronRight className="h-5 w-5 ml-2 group-hover:translate-x-1 transition-transform duration-200" />
                         </Button>
                       </Link>
@@ -335,7 +338,7 @@ export default function Home() {
               className="text-center py-20 dream11-card"
             >
               <div className="text-8xl mb-6">🏏</div>
-              <div className="text-2xl font-bold text-white mb-3">No matches found</div>
+              <div className="text-2xl font-bold gradient-text mb-3">No matches found</div>
               <p className="text-muted-foreground text-lg mb-8">
                 {searchTerm ? 'Try adjusting your search criteria' : 'No matches available at the moment'}
               </p>
